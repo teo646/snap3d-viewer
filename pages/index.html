@@ -38,8 +38,14 @@
   footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
            color: var(--muted); font-size: 13px; }
 
-  /* --- the stage: a still frame until someone asks for the real thing ----- */
+  /* --- what it was made from, above what it became ----------------------- */
   figure { margin: 0 0 34px; }
+  #provenance { display: grid; justify-items: center; gap: 6px; margin-bottom: 2px; }
+  #inputs { display: block; width: min(548px, 100%); height: auto; }
+  #capture { color: var(--muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  #arrow { width: 22px; height: 30px; margin: 2px 0 4px; color: var(--muted); opacity: 0.7; }
+
+  /* --- the stage: a still frame until someone asks for the real thing ----- */
   #stage {
     position: relative; aspect-ratio: 1516 / 944; width: 100%;
     background: #08080a; border: 1px solid var(--line); border-radius: 10px;
@@ -117,6 +123,14 @@
   </p>
 
   <figure>
+    <div id="provenance">
+      <img id="inputs" alt="" decoding="async">
+      <span id="capture"></span>
+      <svg id="arrow" viewBox="0 0 24 34" aria-hidden="true" focusable="false">
+        <path d="M12 1 V26 M4.5 19.5 L12 27.5 L19.5 19.5" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
     <div id="stage">
       <!-- The default subject is inlined so the browser starts fetching it before this
            script runs; `?bundle=` and the gallery below just re-point it. -->
@@ -137,8 +151,9 @@
   </figure>
 
   <p>
-    The still above is a frame this viewer drew — pick another subject below it. Press
-    the button and the same scene comes back live, one draw call, rendered by the very
+    Those are five of the images the surface was fit from, and below them is a frame
+    this viewer drew from the result — pick another subject under it. Press the button
+    and the same scene comes back live, one draw call, rendered by the very
     <code>dist/viewer.js</code> the snippet below loads — then turn the frame and watch
     the gilding: the highlights move because each texel stores how it reflects in every
     direction, not a colour.
@@ -194,10 +209,10 @@ await viewer.ready;</code></pre>
 <script>
   // Four runs from the pipeline, each an export stage directory copied in as it stands.
   const BUNDLES = [
-    { name: 'photo_20260904_152839', label: 'framed painting' },
-    { name: 'photo_20260904_000809', label: 'model house' },
-    { name: 'nerf_chair', label: 'nerf chair' },
-    { name: 'nerf_ship', label: 'nerf ship' },
+    { name: 'photo_20260904_152839', label: 'framed painting', capture: '80 photos' },
+    { name: 'photo_20260904_000809', label: 'DTU model house', capture: '49 photos' },
+    { name: 'nerf_chair', label: 'nerf chair', capture: '100 renders' },
+    { name: 'nerf_ship', label: 'nerf ship', capture: '100 renders' },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -210,6 +225,7 @@ await viewer.ready;</code></pre>
   const bundleUrl = (name) => `./bundle/${name}/config.json`;
   const posterUrl = (name) => `./posters/${name}.webp`;
   const thumbUrl = (name) => `./posters/${name}.thumb.webp`;
+  const inputsUrl = (name) => `./inputs/${name}.webp`;
 
   let current = BUNDLES.find((b) => b.name === new URLSearchParams(location.search).get('bundle')) ?? BUNDLES[0];
   let viewer = null;
@@ -349,6 +365,9 @@ await viewer.ready;</code></pre>
     }
     poster.src = posterUrl(bundle.name);
     poster.alt = `${bundle.label}, rendered by the viewer`;
+    $('inputs').src = inputsUrl(bundle.name);
+    $('inputs').alt = `Five of the ${bundle.capture} the ${bundle.label} was fit from`;
+    $('capture').textContent = bundle.capture; // the arrow below says the rest
     describe(bundle.name);
     // Once the stage is live it stays live: switching subject reloads in place rather
     // than dropping back to a still the visitor has already moved past.

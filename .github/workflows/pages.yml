@@ -41,6 +41,7 @@ jobs:
           mkdir -p _site/dist
           cp pages/index.html _site/
           cp -r pages/posters _site/posters
+          cp -r pages/inputs _site/inputs
           cp dist/* _site/dist/
           # The gallery renders these live, so the bundles ship with the site. Their
           # index.json is a demo-only convenience and is deliberately not copied.

@@ -65,8 +65,8 @@ export function readGlb(buffer) {
   const positions = fetchAccessor(primitive.attributes.POSITION);
   const uv = fetchAccessor(primitive.attributes.TEXCOORD_0);
   let indices = fetchAccessor(primitive.indices);
-  // 65k vertices overflow a 16-bit index buffer; widen rather than fail on a file that
-  // happened to fit.
+  // The writer emits UNSIGNED_INT, but widen rather than fail on a mesh small enough
+  // that some other exporter wrote 16-bit indices.
   if (!(indices instanceof Uint32Array)) indices = Uint32Array.from(indices);
 
   return {

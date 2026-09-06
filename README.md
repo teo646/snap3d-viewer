@@ -103,6 +103,10 @@ no one ever hand-edits a build artifact. The page itself loads that same
 `dist/viewer.js`, so a broken build is visible on the front page rather than only in a
 consumer's console.
 
+Each subject on the landing page is introduced by five of the images it was fit from,
+so what went in and what came out sit one above the other. `tools/make_input_stacks.py`
+rebuilds those from the runs' ingest stages.
+
 The landing page shows a still until someone presses **Render it live**: a visitor pays
 ~210 kB to see what the viewer produces, and 12 MB only if they want to turn it. The
 stills are captured from the page itself, so the live render replaces them at the same
@@ -173,6 +177,8 @@ tools/serve.py               static server with gzip; python -m http.server also
 tools/build.mjs              esbuild: the three dist/ outputs
 pages/index.html             the Pages landing page: posters, gallery, live viewer
 pages/posters/               one still per bundle, plus a thumbnail for the gallery
+pages/inputs/                the photo stack showing what each bundle was fit from
+tools/make_input_stacks.py   rebuilds pages/inputs/ from a run's ingest images
 .github/workflows/pages.yml  build dist/ and deploy it on every push to main
 ```
 
@@ -194,7 +200,8 @@ where GLSL ES will not compare a float against an int.
 ## Requirements
 
 WebGL2, for 2D array textures (one layer per SH coefficient), 16-bit float textures and
-32-bit indices — 65k vertices overflow a 16-bit index buffer — plus
+32-bit indices — the GLB writes `UNSIGNED_INT` unconditionally, and a decimated mesh
+is not bounded by 65,536 vertices — plus
 `DecompressionStream`, for the textures' ZLIB supercompression. In practice that means
 Chrome 80+, Firefox 113+ or Safari 16.4+. There is no WebGL1 fallback.
 

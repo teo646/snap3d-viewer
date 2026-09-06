@@ -137,7 +137,8 @@ export function createRenderer(gl, bundle) {
       gl.bindVertexArray(vao);
       gl.uniformMatrix4fv(mvpLocation, false, mvp);
       gl.uniform3f(camPosLocation, camPos[0], camPos[1], camPos[2]);
-      // 65k verts overflows 16-bit indices; UNSIGNED_INT is core in WebGL2.
+      // The GLB always writes 32-bit indices; UNSIGNED_INT is core in WebGL2, and an
+      // extension away in WebGL1.
       gl.drawElements(gl.TRIANGLES, indexCount, gl.UNSIGNED_INT, 0);
       gl.bindVertexArray(null);
     },
