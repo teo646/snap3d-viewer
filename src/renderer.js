@@ -1,4 +1,4 @@
-// WebGL2 resources for one bundle: the program from shaders.js, the three atlas
+// WebGL2 resources for one bundle: the program from shaders.js, the two atlas
 // textures, and the mesh VAO. Everything here is built once at load and only the MVP
 // and camera position change per frame - the same shape as ParallaxRasterContext.
 
@@ -27,11 +27,11 @@ function compile(gl, type, source) {
   return shader;
 }
 
-function buildProgram(gl, meta) {
+function buildProgram(gl, config) {
   const fragment = fragmentShader({
-    degree: meta.sh_degree,
-    kCoeffs: meta.k_coeffs,
-    numSteps: meta.height.num_steps,
+    degree: config.sh.degree,
+    kCoeffs: config.sh.coefficients,
+    numSteps: config.height.num_steps,
   });
   const program = gl.createProgram();
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER));
@@ -43,10 +43,11 @@ function buildProgram(gl, meta) {
   return program;
 }
 
-function texParams(gl, target, filterable) {
-  const filter = filterable ? gl.LINEAR : gl.NEAREST;
-  gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, filter);
-  gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, filter);
+function texParams(gl, target) {
+  // float16 is filterable in core WebGL2 - no OES_texture_float_linear needed, which
+  // is one of the things that made RGBA16F the format the bundle ships.
+  gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   // repeat_x = repeat_y = False, as every atlas texture is bound in the desktop
   // viewer: a march that overshoots a chart must clamp, never wrap to the far edge.
   gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -55,69 +56,49 @@ function texParams(gl, target, filterable) {
 }
 
 export function createRenderer(gl, bundle) {
-  const { meta, geometry, textures } = bundle;
-  const [w, h] = meta.texture_resolution;
-  const isF16 = meta.texture_precision === 'f16';
+  const { config, geometry, textures } = bundle;
+  const [w, h] = config.texture_resolution;
+  const kCoeffs = config.sh.coefficients;
   const warnings = [];
 
-  if (meta.glsl_sha256 && meta.glsl_sha256 !== PIPELINE_GLSL_SHA256) {
+  // Dormant unless the pipeline records the hash of the GLSL it compiled; see shaders.js.
+  if (config.glsl_sha256 && config.glsl_sha256 !== PIPELINE_GLSL_SHA256) {
     warnings.push(
       'This bundle was built by a pipeline whose GLSL differs from the port in ' +
         'shaders.js - colours may be subtly wrong. Re-port pipeline/core/slf_shaders.py.',
     );
   }
-  // float32 textures are only linearly filterable with this extension; float16 always
-  // is, in core WebGL2. Without it the atlas would snap to texel centers, which reads
-  // as blocky highlights rather than as an error - so say so instead of failing.
-  const floatLinear = isF16 || gl.getExtension('OES_texture_float_linear') !== null;
-  if (!floatLinear) {
-    warnings.push(
-      'OES_texture_float_linear is unavailable: the float32 atlas falls back to ' +
-        'nearest-neighbour sampling. Re-export without --full-precision.',
-    );
-  }
 
-  const program = buildProgram(gl, meta);
+  const program = buildProgram(gl, config);
   gl.useProgram(program);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
   const uniform = (name) => gl.getUniformLocation(program, name);
 
-  // Unit 0: height, the surface the parallax march walks against (R, single channel).
+  // Unit 0: the relief texture. r is the displacement the parallax march walks
+  // against, g is the atlas coverage the fragment discards outside of - one RG16F
+  // fetch where the previous format needed two.
   const heightTex = gl.createTexture();
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, heightTex);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, isF16 ? gl.R16F : gl.R32F, w, h);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, isF16 ? gl.HALF_FLOAT : gl.FLOAT, textures.height);
-  texParams(gl, gl.TEXTURE_2D, floatLinear);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG16F, w, h);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RG, gl.HALF_FLOAT, textures.height.data);
+  texParams(gl, gl.TEXTURE_2D);
 
-  // Unit 1: coverage. Stored as 0/255 and read back normalized, so the shader's
-  // `< 0.5` test means the same thing it does against the float mask.
-  const validTex = gl.createTexture();
-  gl.activeTexture(gl.TEXTURE1);
-  gl.bindTexture(gl.TEXTURE_2D, validTex);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8, w, h);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RED, gl.UNSIGNED_BYTE, textures.valid);
-  texParams(gl, gl.TEXTURE_2D, true);
-
-  // Unit 2: one array layer per SH coefficient, already laid out (K, H, W, RGBA) by
-  // the converter. Alpha is padding - eval_sh reads .rgb.
+  // Unit 2: one array layer per SH coefficient, RGBA16F straight out of the KTX2 -
+  // alpha is padding, because WebGL has no 3-channel float format. eval_sh reads .rgb.
   const coeffTex = gl.createTexture();
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, coeffTex);
-  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, isF16 ? gl.RGBA16F : gl.RGBA32F, w, h, meta.k_coeffs);
-  gl.texSubImage3D(
-    gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, meta.k_coeffs,
-    gl.RGBA, isF16 ? gl.HALF_FLOAT : gl.FLOAT, textures.sh,
-  );
-  texParams(gl, gl.TEXTURE_2D_ARRAY, floatLinear);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA16F, w, h, kCoeffs);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, kCoeffs, gl.RGBA, gl.HALF_FLOAT, textures.sh.data);
+  texParams(gl, gl.TEXTURE_2D_ARRAY);
 
   gl.uniform1i(uniform('u_height_tex'), 0);
-  gl.uniform1i(uniform('u_valid_tex'), 1);
   gl.uniform1i(uniform('u_coeffs'), 2);
   gl.uniform2f(uniform('u_tex_size'), w, h);
-  gl.uniform1f(uniform('u_height_range'), meta.height.range);
-  gl.uniform1f(uniform('u_layer_step'), (2 * meta.height.range) / meta.height.num_steps);
+  gl.uniform1f(uniform('u_height_range'), config.height.range);
+  gl.uniform1f(uniform('u_layer_step'), (2 * config.height.range) / config.height.num_steps);
 
   const buffers = [];
   const vao = gl.createVertexArray();
@@ -150,8 +131,6 @@ export function createRenderer(gl, bundle) {
       // context with a host application that binds its own textures to these units.
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_2D, heightTex);
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, validTex);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, coeffTex);
 
@@ -163,11 +142,11 @@ export function createRenderer(gl, bundle) {
       gl.bindVertexArray(null);
     },
     /** Release every GL object. An embedded viewer that is torn down and rebuilt on
-     *  each route change would otherwise leak ~80 MB of atlas per instance. */
+     *  each route change would otherwise leak ~38 MB of atlas per instance. */
     dispose() {
       gl.deleteVertexArray(vao);
       for (const buffer of buffers) gl.deleteBuffer(buffer);
-      for (const texture of [heightTex, validTex, coeffTex]) gl.deleteTexture(texture);
+      for (const texture of [heightTex, coeffTex]) gl.deleteTexture(texture);
       gl.deleteProgram(program);
     },
   };

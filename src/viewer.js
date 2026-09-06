@@ -3,8 +3,8 @@
 //   const viewer = new Snap3dViewer(canvas, './bundles/my_run');
 //   await viewer.ready;
 //
-// It owns a WebGL2 context on `canvas`, loads a bundle written by
-// tools/export_web_bundle.py, and renders it exactly as viewers/view_bundle.py does.
+// It owns a WebGL2 context on `canvas`, loads an export bundle (config.json + a GLB +
+// two KTX2 textures) and renders it exactly as viewers/view_bundle.py does.
 //
 // The loop is demand-driven by default. The desktop original spins at a fixed 60 Hz
 // because it owns the machine; a viewer embedded in someone's page does not, and a
@@ -42,8 +42,7 @@ const WEBGL2_MISSING =
 export class Snap3dViewer {
   /**
    * @param {HTMLCanvasElement|string} canvas  element, or a selector for one
-   * @param {string} url  the bundle's manifest (`.../asset.json`), or a directory
-   *   holding a `bundle.json`
+   * @param {string} url  the bundle's `config.json`, or the directory holding it
    * @param {object} [options]  see VIEWER_DEFAULTS
    */
   constructor(canvas, url, options = {}) {
@@ -52,7 +51,8 @@ export class Snap3dViewer {
     this.url = String(url).replace(/\/+$/, '');
     this.options = { ...VIEWER_DEFAULTS, ...options };
 
-    this.meta = null;
+    this.config = null;
+    this.stats = null;
     this.camera = null;
     this.controls = null;
     this.warnings = [];
@@ -88,12 +88,12 @@ export class Snap3dViewer {
     return this._renderer !== null;
   }
 
-  /** Bytes of GPU atlas this bundle occupies - the number that decides mobile fit. */
+  /** Bytes of GPU atlas this bundle occupies - the number that decides mobile fit.
+   *  RGBA16F per coefficient, plus one RG16F relief texture. */
   get textureBytes() {
-    if (!this.meta) return 0;
-    const [w, h] = this.meta.texture_resolution;
-    const bytesPerChannel = this.meta.texture_precision === 'f16' ? 2 : 4;
-    return w * h * (4 * this.meta.k_coeffs * bytesPerChannel + bytesPerChannel + 1);
+    if (!this.config) return 0;
+    const [w, h] = this.config.texture_resolution;
+    return w * h * 2 * (4 * this.config.sh.coefficients + 2);
   }
 
   /** Draw when the loop is idle. Cheap and idempotent within one frame. */
@@ -137,7 +137,7 @@ export class Snap3dViewer {
 
   /** The pose the bundle shipped as "open here", as setCamera takes it. */
   get home() {
-    const initial = this.meta?.initial_camera;
+    const initial = this.config?.initial_camera;
     return initial && {
       azimuth: initial.azimuth_deg,
       elevation: initial.elevation_deg,
@@ -198,14 +198,15 @@ export class Snap3dViewer {
     const bundle = await loadBundle(this.url, (loaded, total) => this.options.onProgress?.(loaded, total));
     if (this._disposed) return this;
 
-    this.meta = bundle.meta;
+    this.config = bundle.config;
+    this.stats = bundle.stats;
     this._renderer = createRenderer(this.gl, bundle);
     this.warnings = this._renderer.warnings;
     for (const warning of this.warnings) this._warn(warning);
 
-    const initial = this.meta.initial_camera;
+    const initial = this.config.initial_camera;
     if (!this.camera) {
-      this.camera = new OrbitCamera(initial.target, initial.radius, this.meta.up_vector);
+      this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
       this.camera.azimuth = initial.azimuth_deg;
       this.camera.elevation = initial.elevation_deg;
       if (this.options.controls) {
@@ -252,14 +253,14 @@ export class Snap3dViewer {
   }
 
   _draw() {
-    const { gl, canvas, camera, meta } = this;
+    const { gl, canvas, camera, config } = this;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(...this.options.background, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // near/far track the orbit radius, exactly as view_bundle.py sets them each frame.
     const projection = perspective(
-      this.options.fov ?? meta.initial_camera.fov_deg,
+      this.options.fov ?? config.initial_camera.fov_deg,
       canvas.width / canvas.height,
       camera.radius * 0.02,
       camera.radius * 20,

@@ -1,7 +1,7 @@
 // Entry point for the classic-script build (dist/viewer.js).
 //
 //   <script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"></script>
-//   <script>const viewer = new Snap3dViewer(canvas, 'asset.json');</script>
+//   <script>const viewer = new Snap3dViewer(canvas, 'my_run/config.json');</script>
 //
 // The global is the constructor itself, not a namespace object, because that is the
 // line a page actually writes. The rest of the ESM surface hangs off it as statics -

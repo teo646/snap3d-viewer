@@ -1,21 +1,26 @@
-// Fetches a web bundle written by tools/export_web_bundle.py: one `bundle.json` plus
-// two flat little-endian blobs it indexes into. The blobs are tens of megabytes, so
-// they are streamed with a byte counter rather than awaited as opaque promises.
+// Loads an export bundle: four files, in formats the browser already understands.
+//
+//   config.json   up_vector, sh{...}, texture_resolution, height{...}, initial_camera
+//   mesh.glb      POSITION, TEXCOORD_0, indices - and nothing else
+//   sh.ktx2       RGBA16F array, one layer per SH coefficient (a is padding)
+//   height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
+//
+// There is no conversion step. The pipeline writes glTF and KTX2 in those formats' own
+// conventions, and the two adjustments into this repo's v-up shader happen here at
+// load, exactly as viewers/view_bundle.py does them: `v <- 1 - v` on TEXCOORD_0, and
+// the row flip that puts KTX2's first row at v=0 for GL's bottom-left origin.
+//
+// The per-vertex frame is not in the bundle; frame.js recomputes it from the geometry.
 
-const ARRAY_TYPES = {
-  f32: Float32Array,
-  // f16 stays raw 16-bit words: there is no Float16Array to decode into, and
-  // gl.HALF_FLOAT takes exactly these bits.
-  f16: Uint16Array,
-  u32: Uint32Array,
-  u8: Uint8Array,
-};
+import { readGlb } from './glb.js';
+import { readKtx2 } from './ktx2.js';
+import { vertexFrameAttributes } from './frame.js';
 
-async function fetchWithProgress(url, onChunk) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: ${response.status} ${response.statusText}`);
+const BUNDLE_FORMAT = 'sh_texture_bundle/';
+
+/** Stream one URL, reporting bytes as they arrive. */
+async function streamBody(response, onChunk) {
   if (!response.body) return response.arrayBuffer(); // no streams (file://): still correct
-
   const chunks = [];
   const reader = response.body.getReader();
   let received = 0;
@@ -35,54 +40,111 @@ async function fetchWithProgress(url, onChunk) {
   return out.buffer;
 }
 
-/** Slice one blob into the typed arrays its `views` table describes. */
-function sliceViews(buffer, blob) {
-  const arrays = {};
-  for (const [key, view] of Object.entries(blob.views)) {
-    const Type = ARRAY_TYPES[view.dtype];
-    if (!Type) throw new Error(`unknown dtype "${view.dtype}" for ${blob.file}:${key}`);
-    arrays[key] = new Type(buffer, view.offset, view.bytes / Type.BYTES_PER_ELEMENT);
+/**
+ * Flip a KTX2 texture's rows in place: row 0 arrives as the top row (KTXorientation
+ * "rd", the atlas convention), and GL's texture origin is the bottom-left. The desktop
+ * viewer does this with np.flipud; WebGL's UNPACK_FLIP_Y does not apply to
+ * texSubImage3D layers, so both textures are flipped the same way here.
+ */
+function flipRows(data, width, height, layers, channels) {
+  const rowWords = width * channels;
+  const scratch = new Uint16Array(rowWords);
+  for (let layer = 0; layer < layers; layer++) {
+    const base = layer * height * rowWords;
+    for (let y = 0; y < height >> 1; y++) {
+      const top = base + y * rowWords;
+      const bottom = base + (height - 1 - y) * rowWords;
+      scratch.set(data.subarray(top, top + rowWords));
+      data.copyWithin(top, bottom, bottom + rowWords);
+      data.set(scratch, bottom);
+    }
   }
-  return arrays;
+  return data;
 }
 
 /**
- * @param {string} url  the manifest itself (`.../asset.json`) or the directory holding
- *   a `bundle.json`. The blobs are always resolved next to the manifest, so a bundle
- *   stays movable and renameable as one directory.
+ * @param {string} url  the bundle's `config.json`, or the directory holding it
  * @param {(loaded:number, total:number) => void} onProgress
  */
 export async function loadBundle(url, onProgress = () => {}) {
   const trimmed = String(url).replace(/\/+$/, '');
-  const manifestUrl = /\.json$/i.test(trimmed) ? trimmed : `${trimmed}/bundle.json`;
-  const baseUrl = manifestUrl.slice(0, manifestUrl.lastIndexOf('/'));
+  const configUrl = /\.json$/i.test(trimmed) ? trimmed : `${trimmed}/config.json`;
+  const baseUrl = configUrl.slice(0, configUrl.lastIndexOf('/'));
 
-  const response = await fetch(manifestUrl);
-  if (!response.ok) {
-    throw new Error(`${manifestUrl}: ${response.status} ${response.statusText}`);
-  }
-  const meta = await response.json().catch(() => {
-    throw new Error(`${manifestUrl} is not JSON - is that a bundle?`);
+  const response = await fetch(configUrl);
+  if (!response.ok) throw new Error(`${configUrl}: ${response.status} ${response.statusText}`);
+  const config = await response.json().catch(() => {
+    throw new Error(`${configUrl} is not JSON - is that a bundle?`);
   });
-  if (!meta.format?.startsWith('slf_web_bundle/')) {
-    throw new Error(`${baseUrl} is not a web bundle (format "${meta.format}")`);
+  if (!String(config.format).startsWith(BUNDLE_FORMAT)) {
+    throw new Error(`${baseUrl} is not an export bundle (format "${config.format}")`);
   }
 
-  const blobs = Object.values(meta.buffers);
-  const total = blobs.reduce((sum, blob) => sum + blob.bytes, 0);
+  // All three requests are issued at once so their Content-Lengths give a real total
+  // before any body is read; the bodies then stream in parallel into one counter.
+  const names = ['mesh', 'sh', 'height'];
+  const responses = await Promise.all(
+    names.map(async (name) => {
+      const fileUrl = `${baseUrl}/${config.files[name]}`;
+      const r = await fetch(fileUrl);
+      if (!r.ok) throw new Error(`${fileUrl}: ${r.status} ${r.statusText}`);
+      return r;
+    }),
+  );
+  const total = responses.reduce((sum, r) => sum + (Number(r.headers.get('content-length')) || 0), 0);
   let loaded = 0;
   onProgress(0, total);
+  const buffers = await Promise.all(
+    responses.map((r) =>
+      streamBody(r, (bytes) => {
+        loaded += bytes;
+        onProgress(loaded, total || loaded);
+      }),
+    ),
+  );
+  onProgress(total || loaded, total || loaded);
 
-  // Sequential, not Promise.all: two parallel 20 MB streams make the progress bar
-  // jump around and gain nothing over one connection.
-  const arrays = {};
-  for (const [name, blob] of Object.entries(meta.buffers)) {
-    const buffer = await fetchWithProgress(`${baseUrl}/${blob.file}`, (bytes) => {
-      loaded += bytes;
-      onProgress(loaded, total);
-    });
-    arrays[name] = sliceViews(buffer, blob);
+  const [meshBuffer, shBuffer, heightBuffer] = buffers;
+  const mesh = readGlb(meshBuffer);
+  const [sh, height] = await Promise.all([readKtx2(shBuffer), readKtx2(heightBuffer)]);
+
+  const [width, textureHeight] = config.texture_resolution;
+  for (const [name, texture] of [['sh', sh], ['height', height]]) {
+    if (texture.width !== width || texture.height !== textureHeight) {
+      throw new Error(
+        `${name}.ktx2 is ${texture.width}x${texture.height}, config says ${width}x${textureHeight}`,
+      );
+    }
   }
-  onProgress(total, total);
-  return { meta, ...arrays };
+  if (sh.layers !== config.sh.coefficients) {
+    throw new Error(`sh.ktx2 has ${sh.layers} layers, config says ${config.sh.coefficients} coefficients`);
+  }
+
+  flipRows(sh.data, sh.width, sh.height, sh.layers, sh.channels);
+  flipRows(height.data, height.width, height.height, 1, height.channels);
+
+  // glTF puts the UV origin at the image's top-left; the shader this ports is v-up.
+  const uv = Float32Array.from(mesh.uv);
+  for (let i = 1; i < uv.length; i += 2) uv[i] = 1 - uv[i];
+
+  const frame = vertexFrameAttributes(mesh.positions, uv, mesh.indices);
+
+  // Coverage, for the HUD: g is exactly 0 or 1 per texel, so a non-zero half-float word
+  // is the whole test - no need to decode the mantissa.
+  let covered = 0;
+  for (let i = 1; i < height.data.length; i += height.channels) {
+    if (height.data[i] !== 0) covered++;
+  }
+
+  return {
+    config,
+    geometry: { position: mesh.positions, uv, indices: mesh.indices, ...frame },
+    textures: { sh, height },
+    stats: {
+      vertices: mesh.vertexCount,
+      faces: mesh.faceCount,
+      coverage: covered / (width * textureHeight),
+      bytes: total || buffers.reduce((sum, b) => sum + b.byteLength, 0),
+    },
+  };
 }

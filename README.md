@@ -15,7 +15,7 @@ changes as you move around it.
 <canvas id="canvas" style="width:100%;height:480px"></canvas>
 <script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"></script>
 <script>
-  const viewer = new Snap3dViewer(canvas, 'asset.json');
+  const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
 </script>
 ```
 
@@ -25,12 +25,14 @@ That is the whole integration. Drag to orbit, wheel to zoom, WASD or the arrows 
 ```js
 import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'asset.json');
+const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
 await viewer.ready;
 ```
 
-The second argument is the bundle's JSON manifest, or the directory holding a
-`bundle.json`; the binary blobs are fetched from alongside it either way.
+The second argument is the bundle's `config.json`, or the directory holding it; the
+GLB and the two KTX2 textures are fetched from alongside it either way. **There is no
+conversion step** - this is the pipeline's export stage directory, copied or served as
+it stands.
 
 The loop is demand-driven: rAF runs while something is changing — a drag, a held key, a
 resize, an explicit `requestRender()` — and stops when the image settles, because a
@@ -60,15 +62,26 @@ the module surface on it as statics — `Snap3dViewer.OrbitControls`,
 `Snap3dViewer.loadBundle`, `Snap3dViewer.VERSION` — so a script-tag user is not cut off
 from anything an `import` user gets.
 
-## Producing a bundle
+## The bundle
+
+Four files, written by the pipeline's export stage, in formats a browser already reads:
 
 ```
-python tools/export_web_bundle.py <run>/10_export   # npz bundle -> web assets
+config.json   up_vector, sh{degree, coefficients}, texture_resolution,
+              height{range, num_steps}, initial_camera
+mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
+sh.ktx2       RGBA16F array, one layer per SH coefficient; a is padding
+height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
+```
+
+Copy an export stage dir into `demo/bundles/<name>/` and serve it:
+
+```
 python tools/serve.py                               # http://127.0.0.1:8000/demo/
 ```
 
-The demo page at `/demo/` opens the first converted bundle; `?bundle=<name>` picks one
-when several are converted.
+`?bundle=<name>` picks one when several are present; an optional
+`demo/bundles/index.json` (`{"bundles": ["a", "b"]}`) populates the picker.
 
 ## Building and publishing
 
@@ -87,31 +100,44 @@ Actions**.
 The version is declared in both `package.json` and `src/index.js`; the build fails if
 they disagree, so drift becomes a red CI run rather than a wrong number in a bug report.
 
-## Why there is a conversion step
+## What the loader has to get exactly right
 
-The pipeline's bundle is `config.json` + two `.npz` files, which a browser cannot read.
-`tools/export_web_bundle.py` unzips them into flat little-endian blobs plus one
-`bundle.json` index, and does three things worth knowing about:
+The bundle is written in glTF's and KTX2's own conventions, not this repo's, so a
+consumer that just follows those formats is correct with no special-casing. This viewer
+reuses the pipeline's v-up shader verbatim, so it converts on the way in - the same two
+conversions `view_bundle.py` makes:
 
-**It ships the per-vertex frame.** `view_bundle.py` recomputes normals and the raw
-dP/du, dP/dv at load time, because the bundle carries no frame and reproducing the fit's
-frame approximately is the one way to get subtly wrong colours everywhere. Rather than
-port `vertex_frame_attributes` — and trimesh's smooth-normal fallback — to JavaScript,
-the converter calls the pipeline's own function and writes the result. That costs
-~2.3 MB against a ~41 MB payload, and buys a frame that is identical by construction
-rather than by review. It is why the converter needs the pipeline importable
-(`--pipeline-root`, default `../3d_recon_sh_texture`) and must run under the pipeline's
-interpreter.
+**`v <- 1 - v` on TEXCOORD_0.** glTF puts the UV origin at the image's top-left.
 
-**It narrows the atlas to float16.** Halves the download. The error is 1e-4 on average;
-the worst case is 0.03, reached only by the ~0.01% of SH coefficients with |c| > 25,
-whose contribution is clamped into `[0, 1]` anyway. `--full-precision` keeps float32,
-at ~2x the bytes and a dependency on `OES_texture_float_linear` for filtering.
+**The texture rows are flipped.** KTX2 stores row 0 first; GL's texture origin is
+bottom-left. `UNPACK_FLIP_Y_WEBGL` does not apply to `texSubImage3D` layers, so both
+textures are flipped in `bundle.js` rather than by the driver.
 
-**It flips v.** `camera_raster.to_gl_texture` flips every atlas raster so row 0 lands at
-v=0, matching GL's bottom-left origin. `UNPACK_FLIP_Y_WEBGL` does not apply to
-`texSubImage3D` layers, so the flip happens in the converter for all three textures and
-the shader samples with the mesh's own uv, exactly as the desktop viewer does.
+**The per-vertex frame is recomputed.** The bundle ships positions, UVs and indices and
+nothing else, because normals and tangents are pure functions of those three. The catch
+is that they must be reproduced *exactly*: a different frame resolves a different uv,
+which reads a different texel, which is subtly wrong colours everywhere rather than an
+error. So `src/frame.js` is a port of two named functions -
+`uv_geometry.vertex_normals_for` and `compute_vertex_tangents` - and is checked
+numerically against their output, not against plausibility. Two things there are easy
+to get wrong and cost nothing to get right:
+
+* Normals are **angle-weighted**, not area-weighted. The two differ by up to a full
+  radian on a real mesh.
+* Tangents are **not normalized**. Their length is world units per UV unit, which is
+  what `xy_per_height` converts a world step into a texel step with.
+
+**Textures are float16 and stay that way.** `RGBA16F` and `RG16F` are filterable in core
+WebGL2, so the file's bytes go to `texSubImage` untouched - no widening, no
+`OES_texture_float_linear`.
+
+**The supercompression is ZLIB, and that is a delivery decision.** KTX2 allows
+Zstandard, which compresses ~10% better, but no browser exposes a zstd decoder:
+`DecompressionStream('zstd')` is absent from Chrome 129 and from every Firefox and
+Safari, so zstd would mean bundling a JS decoder and inflating ~38 MB in JS before the
+first frame. ZLIB scheme 3 is an RFC 1950 datastream, which is exactly what
+`DecompressionStream('deflate')` takes, natively, everywhere. The trade is 1 MB of
+download for zero dependencies.
 
 ## Layout
 
@@ -124,11 +150,13 @@ src/renderer.js              program, atlas textures, mesh VAO
 src/shaders.js               GLSL ES 3.00 port of pipeline/core/slf_shaders.py
 src/orbit-camera.js          port of pipeline/core/orbit_camera.py
 src/mat4.js                  column-major look_at / perspective
-src/bundle.js                streaming loader for bundle.json + the two blobs
+src/bundle.js                fetches the four files, applies the two flips
+src/glb.js                   geometry-only glTF Binary reader
+src/ktx2.js                  KTX2 reader; inflates via DecompressionStream
+src/frame.js                 per-vertex normals and raw tangents, ported exactly
 demo/index.html              canvas, HUD, loading overlay
 demo/demo.js                 which bundle to open, HUD wiring - policy, not rendering
-demo/bundles/<run_id>/       converted output (gitignored)
-tools/export_web_bundle.py   bundle -> web assets (needs the pipeline importable)
+demo/bundles/<run_id>/       an export stage dir, copied in (gitignored)
 tools/serve.py               static server with gzip; python -m http.server also works
 tools/build.mjs              esbuild: the three dist/ outputs
 pages/index.html             the Pages landing page
@@ -139,9 +167,11 @@ pages/index.html             the Pages landing page
 
 `src/shaders.js` is the one place the pipeline's shared GLSL is retyped rather than
 imported, and a drift there shows up as subtly wrong colours, not as an error. So every
-bundle records `sha256(VERTEX_SHADER + RESOLVE_GLSL + EVAL_SH_GLSL)` of the pipeline
-that built it, the port records the hash it was taken from, and the viewer prints a
-warning panel when they disagree. If you see it: re-port
+port records `sha256(VERTEX_SHADER + RESOLVE_GLSL + EVAL_SH_GLSL)` of the pipeline it
+was taken from, and the viewer compares it against a `glsl_sha256` in `config.json` and
+prints a warning panel when they disagree. **The export format does not currently write
+that field**, so the check is dormant; if the pipeline starts recording it, drift stops
+being something anyone has to notice by eye. If you do see the warning: re-port
 `pipeline/core/slf_shaders.py` and update `PIPELINE_GLSL_SHA256`.
 
 The port itself differs from the Python source in exactly three places, each marked
@@ -150,13 +180,20 @@ where GLSL ES will not compare a float against an int.
 
 ## Requirements
 
-WebGL2, for 2D array textures (one layer per SH coefficient), 16-bit float textures, and
-32-bit indices — 65k vertices overflow a 16-bit index buffer. That is every current
-desktop and mobile browser; there is no WebGL1 fallback.
+WebGL2, for 2D array textures (one layer per SH coefficient), 16-bit float textures and
+32-bit indices — 65k vertices overflow a 16-bit index buffer — plus
+`DecompressionStream`, for the textures' ZLIB supercompression. In practice that means
+Chrome 80+, Firefox 113+ or Safari 16.4+. There is no WebGL1 fallback.
 
 ## Verified against the desktop viewer
 
 The initial frame was rendered both ways at 1280×800 and diffed: 97.8% of pixels within
-2/255, mean absolute difference 0.4/255, and the residual is confined to silhouette
-edges — the browser draws with MSAA, the reference framebuffer does not. Geometry
-round-trips bit-exactly; the JS camera reproduces the pose `config.json` ships to 6e-15.
+2/255 and a mean absolute difference of 0.3/255, which is the float16 atlas — the
+reference widens it to float32 on upload, the browser samples the halves directly. The
+0.31% beyond 24/255 are silhouette edges, where the browser draws with MSAA and the
+reference framebuffer does not.
+
+The frame `src/frame.js` computes was diffed against `vertex_frame_attributes` over all
+65,198 vertices: normals are bit-identical once rounded to float32, and the raw tangents
+agree to 3e-7 relative, which is float32 epsilon on an accumulation. The JS camera
+reproduces the pose `config.json` ships to 6e-15.

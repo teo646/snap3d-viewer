@@ -8,10 +8,10 @@
 // GLSL ES 3.00 forces, each marked `// PORT:`.
 //
 // `PIPELINE_GLSL_SHA256` is sha256(VERTEX_SHADER + RESOLVE_GLSL + EVAL_SH_GLSL) of the
-// Python module this was ported from. Every bundle records the same hash of whatever
-// pipeline built it (tools/export_web_bundle.py), and main.js compares them: a
-// mismatch means the pipeline's GLSL has moved and this port is stale, which shows up
-// as subtly wrong colours rather than as an error.
+// Python module this was ported from. renderer.js compares it against a `glsl_sha256`
+// in the bundle's config.json and warns on a mismatch, which is what a stale port looks
+// like - subtly wrong colours rather than an error. The export format does not write
+// that field today, so the check sits dormant rather than firing wrongly.
 export const PIPELINE_GLSL_SHA256 = '4cfaf24af95e072ada3dea33b4c154c7f3d9e45d184070bee047f5adf0892314';
 
 export const VERTEX_SHADER = `#version 300 es
@@ -162,14 +162,14 @@ in vec3 v_world_pos;
 in vec3 v_normal;
 in vec3 v_tangent;
 in vec3 v_bitangent;
-uniform sampler2D u_valid_tex;  // atlas coverage: chart interiors plus their gutter
 out vec4 f_color;
 
 void main(){
     vec3 N = normalize(v_normal);
     vec2 resolved_uv = resolve_parallax_uv(v_uv, v_world_pos, N, v_tangent, v_bitangent);
-    // discard, not a debug colour: this viewer shows what a consumer would ship.
-    if (texture(u_valid_tex, resolved_uv).r < 0.5) discard;
+    // g of the relief texture is the atlas coverage - chart interiors plus their
+    // gutter. discard, not a debug colour: this viewer shows what a consumer would ship.
+    if (texture(u_height_tex, resolved_uv).g < 0.5) discard;
 
     vec3 view_w = normalize(u_cam_pos - v_world_pos);
     // Gram-Schmidt against N, then B derived by cross product - not the interpolated

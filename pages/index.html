@@ -45,7 +45,7 @@
   <pre><code>&lt;canvas id="canvas" style="width:100%;height:480px"&gt;&lt;/canvas&gt;
 &lt;script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"&gt;&lt;/script&gt;
 &lt;script&gt;
-  const viewer = new Snap3dViewer(canvas, 'asset.json');
+  const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
 &lt;/script&gt;</code></pre>
   <p>
     Drag to orbit, wheel to zoom, WASD or the arrow keys to pan, <code>R</code> to
@@ -56,7 +56,7 @@
   <h2>Or as a module</h2>
   <pre><code>import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'asset.json');
+const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
 await viewer.ready;</code></pre>
   <p>
     The <code>&lt;script&gt;</code> build defines <code>Snap3dViewer</code> as the
@@ -67,11 +67,12 @@ await viewer.ready;</code></pre>
 
   <h2>What an asset is</h2>
   <p>
-    One JSON manifest beside two flat binary blobs: mesh positions, uvs, indices and
-    the per-vertex frame in one, the SH coefficient atlas, height map and coverage mask
-    in the other. Point the viewer at the manifest; the blobs are fetched from
-    alongside it. Bundles are produced from the pipeline's export stage by
-    <code>tools/export_web_bundle.py</code> in the repository.
+    Four files, in formats the browser already reads: a <code>config.json</code>, a
+    <code>.glb</code> carrying positions, UVs and indices, and two <code>.ktx2</code>
+    textures — the SH coefficient atlas as an RGBA16F array, one layer per coefficient,
+    and a two-channel relief map holding displacement and atlas coverage. Point the
+    viewer at the <code>config.json</code>; the rest is fetched from alongside it. There
+    is no conversion step: this is the pipeline's export stage directory as it stands.
   </p>
 
   <h2>Requirements</h2>

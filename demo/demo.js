@@ -7,6 +7,7 @@
 import { Snap3dViewer } from '../src/index.js';
 
 const BUNDLES_ROOT = './bundles';
+const DEFAULT_BUNDLE = 'photo_20260904_152839';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
@@ -35,26 +36,24 @@ async function resolveBundleName() {
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
   const names = index?.bundles ?? [];
+  // index.json is optional: it only exists to populate the picker when several runs
+  // have been copied in. One bundle needs no index.
   if (requested) return [requested, names.length ? names : [requested]];
-  if (!names.length) {
-    throw new Error(
-      'No bundles found. Convert one first:\n' +
-        '  python tools/export_web_bundle.py <run>/10_export',
-    );
-  }
-  return [names[0], names];
+  if (names.length) return [names[0], names];
+  return [DEFAULT_BUNDLE, [DEFAULT_BUNDLE]];
 }
 
 function fillHud(viewer, name, names) {
-  const { meta } = viewer;
+  const { config, stats } = viewer;
   $('title').textContent = name;
-  $('s-mesh').textContent = `${meta.mesh.vertices.toLocaleString()} v / ${meta.mesh.faces.toLocaleString()} f`;
-  $('s-sh').textContent = `degree ${meta.sh_degree} · ${meta.k_coeffs} coeffs`;
-  const [w, h] = meta.texture_resolution;
-  $('s-atlas').textContent = `${w}×${h} ${meta.texture_precision}`;
+  $('s-mesh').textContent = `${stats.vertices.toLocaleString()} v / ${stats.faces.toLocaleString()} f`;
+  $('s-sh').textContent = `degree ${config.sh.degree} · ${config.sh.coefficients} coeffs`;
+  const [w, h] = config.texture_resolution;
+  $('s-atlas').textContent = `${w}×${h} f16`;
+  $('s-download').textContent = `${(stats.bytes / 1e6).toFixed(1)} MB`;
   $('s-vram').textContent = `${(viewer.textureBytes / 1e6).toFixed(0)} MB`;
-  $('s-coverage').textContent = `${(meta.coverage * 100).toFixed(1)}%`;
-  $('s-steps').textContent = meta.height.num_steps;
+  $('s-coverage').textContent = `${(stats.coverage * 100).toFixed(1)}%`;
+  $('s-steps').textContent = config.height.num_steps;
 
   const picker = $('picker');
   for (const other of names) picker.appendChild(new Option(other, other, false, other === name));
@@ -81,7 +80,10 @@ async function main() {
   const viewer = new Snap3dViewer(canvas, `${BUNDLES_ROOT}/${name}`, {
     onProgress: (loaded, total) => {
       $('bar').firstElementChild.style.width = `${(loaded / total) * 100}%`;
-      status.textContent = `loading ${name} — ${(loaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`;
+      status.textContent =
+        loaded < total
+          ? `loading ${name} — ${(loaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`
+          : 'decompressing…'; // inflate + the frame + the upload, all after the last byte
     },
     onWarning: note,
     onError: fail,
