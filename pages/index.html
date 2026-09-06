@@ -62,24 +62,16 @@
   #stage.live #canvas.shs-dragging { cursor: grabbing; }
   #canvas:focus, #canvas:focus-visible { outline: none; }
 
-  /* The button sits at the foot of the stage rather than over the middle of it: the
-     subject is the point of the poster, and a pill across its face hides exactly what
-     the visitor came to look at. */
-  #cta, #progress {
+  /* The progress sits at the foot of the stage rather than over the middle of it:
+     the subject is the point of the poster, and a bar across its face hides exactly
+     what the visitor came to look at. */
+  #progress {
     position: absolute; left: 0; right: 0; bottom: 0;
-    display: grid; justify-items: center; gap: 7px; padding: 20px 16px 16px;
+    display: grid; justify-items: center; gap: 8px; padding: 20px 16px 16px;
     background: linear-gradient(transparent, rgba(8, 8, 10, 0.8));
-    border: 0; font: inherit; text-align: center;
+    text-align: center; transition: opacity 0.3s ease;
   }
-  #cta { cursor: pointer; transition: opacity 0.2s ease; }
-  #go {
-    padding: 9px 18px; border: 1px solid var(--line); border-radius: 999px;
-    background: rgba(10, 10, 12, 0.86); backdrop-filter: blur(6px);
-    color: var(--text); font: 600 13px/1 ui-sans-serif, system-ui, sans-serif;
-    transition: border-color 0.15s ease, color 0.15s ease;
-  }
-  #cta:hover #go, #cta:focus-visible #go { border-color: var(--accent); color: var(--accent); }
-  #cta small, #progress span {
+  #progress span {
     color: var(--muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   #bar { width: 220px; height: 3px; background: #22222a; border-radius: 2px; overflow: hidden; }
@@ -140,11 +132,7 @@
       <img id="poster" src="./posters/photo_20260904_152839.webp" width="1516" height="944"
            decoding="async" alt="A gilded Renaissance picture frame rendered by the viewer.">
       <canvas id="canvas"></canvas>
-      <button id="cta" type="button">
-        <span id="go">Render it live</span>
-        <small id="hint">WebGL2 · interactive</small>
-      </button>
-      <div id="progress" hidden><div id="bar"><i></i></div><span id="status"></span></div>
+      <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
     </div>
     <figcaption>
       <span id="controls"><b>drag</b> to orbit &nbsp; <b>wheel</b> to zoom &nbsp; <b>R</b> to reset</span>
@@ -154,12 +142,12 @@
   </figure>
 
   <p>
-    Those are five of the images the surface was fit from, and below them is a frame
-    this viewer drew from the result — pick another subject under it. Press the button
-    and the same scene comes back live, one draw call, rendered by the very
-    <code>dist/viewer.js</code> the snippet below loads — then turn the frame and watch
-    the gilding: the highlights move because each texel stores how it reflects in every
-    direction, not a colour.
+    Those are five of the images the surface was fit from, and below them is the result,
+    live — one draw call, drawn by the very <code>dist/viewer.js</code> the snippet
+    below loads. Turn it and watch the gilding: the highlights move because each texel
+    stores how it reflects in every direction, not a colour. Pick another subject and it
+    loads in place; the three you have not chosen are fetched quietly behind the one you
+    are looking at, so the switch is usually instant.
   </p>
 
   <h2>Use it from a script tag</h2>
@@ -220,7 +208,6 @@ await viewer.ready;</code></pre>
 
   const $ = (id) => document.getElementById(id);
   const stage = $('stage');
-  const cta = $('cta');
   const progress = $('progress');
   const status = $('status');
   const poster = $('poster');
@@ -232,41 +219,23 @@ await viewer.ready;</code></pre>
 
   let current = BUNDLES.find((b) => b.name === new URLSearchParams(location.search).get('bundle')) ?? BUNDLES[0];
   let viewer = null;
+  let prefetching = null; // AbortController for the background fetches, if any
 
   const fail = (error) => {
-    cta.hidden = true;
     progress.hidden = false;
     progress.classList.add('failed');
     status.textContent = String(error?.message ?? error);
     console.error(error);
   };
 
-  /**
-   * Describe a bundle without downloading it: config.json is 1.5 kB and carries the
-   * mesh and atlas figures, and three HEADs give the real byte total. A visitor who
-   * only browses the thumbnails pays ~2 kB per subject, not 12 MB.
-   */
+  /** The mesh and atlas figures, from the 1.5 kB config the loader wants anyway. */
   async function describe(name) {
     $('stats').textContent = '';
-    $('hint').textContent = 'WebGL2 · interactive';
-    const url = bundleUrl(name);
-    const config = await fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const config = await fetch(bundleUrl(name)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (!config || name !== current.name) return;
-    const base = url.slice(0, url.lastIndexOf('/'));
-    const sizes = await Promise.all(
-      ['mesh', 'sh', 'height'].map((key) =>
-        fetch(`${base}/${config.files[key]}`, { method: 'HEAD' })
-          .then((r) => Number(r.headers.get('content-length')) || 0)
-          .catch(() => 0),
-      ),
-    );
-    if (name !== current.name) return; // a faster click won the race
-    const bytes = sizes.reduce((sum, n) => sum + n, 0);
     const [w, h] = config.texture_resolution;
     $('stats').textContent =
-      `${config.mesh.vertices.toLocaleString()} v · ${w}×${h} · degree ${config.sh.degree}` +
-      (bytes ? ` · ${(bytes / 1e6).toFixed(1)} MB` : '');
-    if (bytes) $('hint').textContent = `${(bytes / 1e6).toFixed(1)} MB · WebGL2`;
+      `${config.mesh.vertices.toLocaleString()} v · ${w}×${h} · degree ${config.sh.degree}`;
   }
 
   /**
@@ -322,6 +291,38 @@ await viewer.ready;</code></pre>
     }
   }
 
+  /**
+   * Pull the other bundles into the HTTP cache, one at a time, after the one on screen
+   * is drawn. Switching subject then costs a decode rather than a download.
+   *
+   * Sequential and low priority on purpose: three parallel 12 MB streams would fight
+   * the bundle the visitor is actually waiting for. Skipped entirely when the browser
+   * says the connection is metered or slow - 36 MB of speculation is a rude thing to
+   * put on someone's data plan for a subject they may never click.
+   */
+  async function prefetchOthers() {
+    const link = navigator.connection;
+    if (link?.saveData || /(^|-)2g$/.test(link?.effectiveType ?? '')) return;
+
+    prefetching?.abort();
+    const controller = (prefetching = new AbortController());
+    for (const bundle of BUNDLES) {
+      if (bundle.name === current.name) continue;
+      const url = bundleUrl(bundle.name);
+      try {
+        const config = await fetch(url, { signal: controller.signal }).then((r) => r.json());
+        const base = url.slice(0, url.lastIndexOf('/'));
+        for (const key of ['mesh', 'sh', 'height']) {
+          // Read the body to completion: a response left unread is not cached.
+          await fetch(`${base}/${config.files[key]}`, { signal: controller.signal, priority: 'low' })
+            .then((r) => r.arrayBuffer());
+        }
+      } catch {
+        if (controller.signal.aborted) return; // a click won; it will restart after
+      }
+    }
+  }
+
   function settle() {
     fitToView(viewer);
     // R should return to what the visitor first saw, not to the pose the fit moved
@@ -329,13 +330,16 @@ await viewer.ready;</code></pre>
     viewer.setHome();
     progress.hidden = true;
     stage.classList.add('live');
-    viewer.focus();
+    const [w, h] = viewer.config.texture_resolution;
+    $('stats').textContent =
+      `${viewer.stats.vertices.toLocaleString()} v · ${w}×${h} · degree ${viewer.config.sh.degree} · ` +
+      `${(viewer.stats.bytes / 1e6).toFixed(1)} MB`;
+    prefetchOthers();
   }
 
   function onReadyFailed() {} // onError already reported it; this only stops the rejection
 
   function render() {
-    cta.hidden = true;
     progress.classList.remove('failed');
     progress.hidden = false;
     status.textContent = 'loading…';
@@ -362,7 +366,10 @@ await viewer.ready;</code></pre>
   }
 
   function select(bundle) {
+    if (bundle.name === current.name && viewer) return;
     current = bundle;
+    // Anything speculative loses to what the visitor just asked for.
+    prefetching?.abort();
     for (const button of document.querySelectorAll('.thumb')) {
       button.setAttribute('aria-current', String(button.dataset.bundle === bundle.name));
     }
@@ -371,10 +378,9 @@ await viewer.ready;</code></pre>
     $('inputs').src = inputsUrl(bundle.name);
     $('inputs').alt = `Five of the ${bundle.capture} the ${bundle.label} was fit from`;
     $('capture').textContent = bundle.capture; // the arrow below says the rest
+    stage.classList.remove('live');
     describe(bundle.name);
-    // Once the stage is live it stays live: switching subject reloads in place rather
-    // than dropping back to a still the visitor has already moved past.
-    if (viewer) render();
+    render();
   }
 
   for (const bundle of BUNDLES) {
@@ -389,7 +395,6 @@ await viewer.ready;</code></pre>
     $('gallery').appendChild(button);
   }
 
-  cta.addEventListener('click', render);
   select(current);
 </script>
 </body>

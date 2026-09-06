@@ -107,10 +107,14 @@ Each subject on the landing page is introduced by five of the images it was fit 
 so what went in and what came out sit one above the other. `tools/make_input_stacks.py`
 rebuilds those from the runs' ingest stages.
 
-The landing page shows a still until someone presses **Render it live**: a visitor pays
-~210 kB to see what the viewer produces, and 12 MB only if they want to turn it. The
-stills are captured from the page itself, so the live render replaces them at the same
-framing. Enabling Pages is a one-time manual step: **Settings → Pages → Source: GitHub
+The landing page renders the first subject on arrival, over its own still so there is
+something to look at while the 12 MB arrives, and then pulls the other three into the
+HTTP cache one at a time behind it — sequential and low priority, so speculation never
+competes with the bundle the visitor is waiting for, and skipped entirely when the
+browser reports a metered or slow connection. Measured at 25 Mbit/s: first frame at
+4.4 s, the second bundle's first request at 4.3 s *after* that, and switching subject
+then costs a decode rather than a download. The stills are captured from the page
+itself, so the live render replaces them at the same framing. Enabling Pages is a one-time manual step: **Settings → Pages → Source: GitHub
 Actions**.
 
 The version is declared in both `package.json` and `src/index.js`; the build fails if
