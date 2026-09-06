@@ -17,7 +17,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_RUNS = ROOT.parent / "3d_recon_sh_texture" / "data" / "runs"
@@ -39,7 +39,10 @@ SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
 def load(path: Path) -> Image.Image:
-    image = Image.open(path)
+    # exif_transpose first: a phone writes the sensor's own landscape frame plus an
+    # Orientation tag, and PIL honours neither on its own - without this every portrait
+    # capture ends up on its side.
+    image = ImageOps.exif_transpose(Image.open(path))
     if image.mode not in ("RGBA", "LA", "P"):
         return image.convert("RGB")
     image = image.convert("RGBA")
@@ -51,7 +54,7 @@ def load(path: Path) -> Image.Image:
 def subject_score(path: Path) -> float:
     """How much subject a frame shows: matte coverage where there is one, else the
     spread of its luminance, which on these captures tracks the same thing."""
-    probe = Image.open(path)
+    probe = ImageOps.exif_transpose(Image.open(path))
     probe.thumbnail((160, 160), Image.NEAREST)
     if probe.mode in ("RGBA", "LA", "P"):
         return float(np.asarray(probe.convert("RGBA").getchannel("A"), dtype=np.float32).mean() / 255)
@@ -95,7 +98,13 @@ def main() -> None:
         # Score a spread of candidates rather than all of them: at 100 frames the
         # ranking is the same and it reads a twentieth of the pixels.
         probes = [files[round(i * (len(files) - 1) / 23)] for i in range(24)]
-        chosen = sorted(sorted(probes, key=subject_score, reverse=True)[: len(ANGLES)], key=files.index)
+        # Drop the half that shows least of the subject, then take five spread evenly
+        # across what is left. Taking the top five outright bunches them: consecutive
+        # frames of a slow orbit score alike, and five near-identical cards look like a
+        # mistake rather than a capture.
+        scores = sorted(probes, key=subject_score, reverse=True)
+        keep = sorted(scores[: max(len(ANGLES), len(scores) // 2)], key=files.index)
+        chosen = [keep[round(i * (len(keep) - 1) / (len(ANGLES) - 1))] for i in range(len(ANGLES))]
         image = stack(chosen)
         target = args.out / f"{name}.webp"
         image.save(target, "WEBP", quality=88, method=6)
