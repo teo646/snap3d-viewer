@@ -4,30 +4,106 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Snap3d Viewer</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d0f'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%237dd3c0' stroke-width='2.5'/%3E%3Ccircle cx='12.5' cy='12.5' r='2.6' fill='%237dd3c0'/%3E%3C/svg%3E">
 <style>
-  :root { color-scheme: dark; --bg:#0d0d0f; --panel:#141418; --line:#26262c; --text:#e8e8ea; --muted:#8b8b96; --accent:#7dd3c0; }
+  :root {
+    color-scheme: dark;
+    --bg: #0d0d0f; --panel: #141418; --line: #26262c;
+    --text: #e8e8ea; --muted: #8b8b96; --accent: #7dd3c0; --error: #f08a8a;
+  }
   * { box-sizing: border-box; }
+  /* An id selector's `display` outranks the UA's [hidden] rule, and several below are
+     id-scoped grids. Without this, `el.hidden = true` silently does nothing. */
+  [hidden] { display: none !important; }
   body {
-    margin: 0; padding: 48px 24px 96px; background: var(--bg); color: var(--text);
+    margin: 0; padding: 40px 24px 96px; background: var(--bg); color: var(--text);
     font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 720px; margin: 0 auto; }
+  main { max-width: 760px; margin: 0 auto; }
   h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
   h2 { font-size: 13px; margin: 40px 0 10px; color: var(--muted); font-weight: 600;
        text-transform: uppercase; letter-spacing: 0.08em; }
   p { margin: 0 0 14px; color: #c9c9d0; }
-  .lede { color: var(--muted); margin-bottom: 28px; }
+  .lede { color: var(--muted); margin-bottom: 24px; }
   pre {
     margin: 0 0 14px; padding: 14px 16px; overflow-x: auto;
     background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
     font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  p > code, li > code { font-size: 0.9em; color: var(--accent); }
+  p > code, li > code, figcaption code { font-size: 0.9em; color: var(--accent); }
   a { color: var(--accent); }
   ul { margin: 0 0 14px; padding-left: 20px; color: #c9c9d0; }
   li { margin-bottom: 4px; }
-  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+  footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
+           color: var(--muted); font-size: 13px; }
+
+  /* --- the stage: a still frame until someone asks for the real thing ----- */
+  figure { margin: 0 0 34px; }
+  #stage {
+    position: relative; aspect-ratio: 1516 / 944; width: 100%;
+    background: #08080a; border: 1px solid var(--line); border-radius: 10px;
+    overflow: hidden;
+  }
+  #stage > img, #stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #poster { object-fit: cover; transition: opacity 0.5s ease; }
+  #canvas { opacity: 0; transition: opacity 0.5s ease; touch-action: none; }
+  #stage.live #poster { opacity: 0; }
+  #stage.live #canvas { opacity: 1; cursor: grab; }
+  #stage.live #canvas.shs-dragging { cursor: grabbing; }
+  #canvas:focus, #canvas:focus-visible { outline: none; }
+
+  /* The button sits at the foot of the stage rather than over the middle of it: the
+     subject is the point of the poster, and a pill across its face hides exactly what
+     the visitor came to look at. */
+  #cta, #progress {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    display: grid; justify-items: center; gap: 7px; padding: 20px 16px 16px;
+    background: linear-gradient(transparent, rgba(8, 8, 10, 0.8));
+    border: 0; font: inherit; text-align: center;
+  }
+  #cta { cursor: pointer; transition: opacity 0.2s ease; }
+  #go {
+    padding: 9px 18px; border: 1px solid var(--line); border-radius: 999px;
+    background: rgba(10, 10, 12, 0.86); backdrop-filter: blur(6px);
+    color: var(--text); font: 600 13px/1 ui-sans-serif, system-ui, sans-serif;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+  #cta:hover #go, #cta:focus-visible #go { border-color: var(--accent); color: var(--accent); }
+  #cta small, #progress span {
+    color: var(--muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #bar { width: 220px; height: 3px; background: #22222a; border-radius: 2px; overflow: hidden; }
+  #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
+  #progress.failed span { color: var(--error); }
+  #progress.failed #bar { display: none; }
+
+  figcaption {
+    display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between;
+    margin-top: 10px; color: var(--muted);
+    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  #controls { visibility: hidden; }
+
+  #gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .thumb {
+    display: grid; gap: 6px; padding: 0; border: 0; background: none; cursor: pointer;
+    font: inherit; text-align: left;
+  }
+  .thumb img {
+    display: block; width: 100%; aspect-ratio: 1516 / 944; object-fit: cover;
+    background: #08080a; border: 1px solid var(--line); border-radius: 6px;
+    transition: border-color 0.15s ease, opacity 0.15s ease; opacity: 0.62;
+  }
+  .thumb span {
+    color: var(--muted); font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .thumb:hover img { opacity: 0.85; }
+  .thumb[aria-current="true"] img { opacity: 1; border-color: var(--accent); }
+  .thumb[aria-current="true"] span { color: var(--text); }
+  @media (max-width: 520px) { #gallery { grid-template-columns: repeat(2, 1fr); } }
+  #stage.live ~ figcaption #controls { visibility: visible; }
 </style>
 </head>
 <body>
@@ -36,27 +112,53 @@
   <p class="lede">
     A WebGL2 viewer for SH-texture surface bundles. It marches a parallax-occlusion ray
     through a baked height atlas to resolve each fragment's uv, then evaluates a
-    spherical-harmonic fit of the view direction in the surface's local frame. No
-    lighting model and no material — the SH texture is the appearance, so the surface
-    changes as you move around it.
+    spherical-harmonic fit of the view direction in the surface's local frame. There is
+    no lighting model and no material — the SH texture <em>is</em> the appearance.
+  </p>
+
+  <figure>
+    <div id="stage">
+      <!-- The default subject is inlined so the browser starts fetching it before this
+           script runs; `?bundle=` and the gallery below just re-point it. -->
+      <img id="poster" src="./posters/photo_20260904_152839.webp" width="1516" height="944"
+           decoding="async" alt="A gilded Renaissance picture frame rendered by the viewer.">
+      <canvas id="canvas"></canvas>
+      <button id="cta" type="button">
+        <span id="go">Render it live</span>
+        <small id="hint">WebGL2 · interactive</small>
+      </button>
+      <div id="progress" hidden><div id="bar"><i></i></div><span id="status"></span></div>
+    </div>
+    <figcaption>
+      <span id="controls"><b>drag</b> to orbit &nbsp; <b>wheel</b> to zoom &nbsp; <b>R</b> to reset</span>
+      <span id="stats"></span>
+    </figcaption>
+    <div id="gallery"></div>
+  </figure>
+
+  <p>
+    The still above is a frame this viewer drew — pick another subject below it. Press
+    the button and the same scene comes back live, one draw call, rendered by the very
+    <code>dist/viewer.js</code> the snippet below loads — then turn the frame and watch
+    the gilding: the highlights move because each texel stores how it reflects in every
+    direction, not a colour.
   </p>
 
   <h2>Use it from a script tag</h2>
   <pre><code>&lt;canvas id="canvas" style="width:100%;height:480px"&gt;&lt;/canvas&gt;
 &lt;script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"&gt;&lt;/script&gt;
 &lt;script&gt;
-  const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
+  const viewer = new Snap3dViewer(canvas, 'my_run/config.json');
 &lt;/script&gt;</code></pre>
   <p>
-    Drag to orbit, wheel to zoom, WASD or the arrow keys to pan, <code>R</code> to
-    reset. The loop is demand-driven: it draws while something is changing and stops
-    when the image settles.
+    The loop is demand-driven: it draws while something is changing and stops when the
+    image settles, so a still frame costs nothing to hold.
   </p>
 
   <h2>Or as a module</h2>
   <pre><code>import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
+const viewer = new Snap3dViewer(canvas, 'my_run/config.json');
 await viewer.ready;</code></pre>
   <p>
     The <code>&lt;script&gt;</code> build defines <code>Snap3dViewer</code> as the
@@ -78,7 +180,8 @@ await viewer.ready;</code></pre>
   <h2>Requirements</h2>
   <ul>
     <li>WebGL2 — 2D array textures, 16-bit float textures, 32-bit indices.</li>
-    <li>Every current desktop and mobile browser. There is no WebGL1 fallback.</li>
+    <li><code>DecompressionStream</code>, for the textures' ZLIB supercompression.</li>
+    <li>Chrome 80+, Firefox 113+, Safari 16.4+. There is no WebGL1 fallback.</li>
   </ul>
 
   <footer>
@@ -86,5 +189,186 @@ await viewer.ready;</code></pre>
     · Apache-2.0
   </footer>
 </main>
+
+<script src="./dist/viewer.js"></script>
+<script>
+  // Four runs from the pipeline, each an export stage directory copied in as it stands.
+  const BUNDLES = [
+    { name: 'photo_20260904_152839', label: 'framed painting' },
+    { name: 'photo_20260904_000809', label: 'model house' },
+    { name: 'nerf_chair', label: 'nerf chair' },
+    { name: 'nerf_ship', label: 'nerf ship' },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const stage = $('stage');
+  const cta = $('cta');
+  const progress = $('progress');
+  const status = $('status');
+  const poster = $('poster');
+
+  const bundleUrl = (name) => `./bundle/${name}/config.json`;
+  const posterUrl = (name) => `./posters/${name}.webp`;
+  const thumbUrl = (name) => `./posters/${name}.thumb.webp`;
+
+  let current = BUNDLES.find((b) => b.name === new URLSearchParams(location.search).get('bundle')) ?? BUNDLES[0];
+  let viewer = null;
+
+  const fail = (error) => {
+    cta.hidden = true;
+    progress.hidden = false;
+    progress.classList.add('failed');
+    status.textContent = String(error?.message ?? error);
+    console.error(error);
+  };
+
+  /**
+   * Describe a bundle without downloading it: config.json is 1.5 kB and carries the
+   * mesh and atlas figures, and three HEADs give the real byte total. A visitor who
+   * only browses the thumbnails pays ~2 kB per subject, not 12 MB.
+   */
+  async function describe(name) {
+    $('stats').textContent = '';
+    $('hint').textContent = 'WebGL2 · interactive';
+    const url = bundleUrl(name);
+    const config = await fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    if (!config || name !== current.name) return;
+    const base = url.slice(0, url.lastIndexOf('/'));
+    const sizes = await Promise.all(
+      ['mesh', 'sh', 'height'].map((key) =>
+        fetch(`${base}/${config.files[key]}`, { method: 'HEAD' })
+          .then((r) => Number(r.headers.get('content-length')) || 0)
+          .catch(() => 0),
+      ),
+    );
+    if (name !== current.name) return; // a faster click won the race
+    const bytes = sizes.reduce((sum, n) => sum + n, 0);
+    const [w, h] = config.texture_resolution;
+    $('stats').textContent =
+      `${config.mesh.vertices.toLocaleString()} v · ${w}×${h} · degree ${config.sh.degree}` +
+      (bytes ? ` · ${(bytes / 1e6).toFixed(1)} MB` : '');
+    if (bytes) $('hint').textContent = `${(bytes / 1e6).toFixed(1)} MB · WebGL2`;
+  }
+
+  /**
+   * Centre and fill the stage with whatever the bundle drew.
+   *
+   * The pose in config.json is the one the pipeline picked for a 1280x800 window, and
+   * this stage is neither that size nor that shape, so it tends to leave the surface
+   * small and hugging one edge. Rather than hard-code an offset per bundle - there are
+   * four here, with different up vectors and extents - read back the frame, take the
+   * bounding box of everything that is not background, and pan and zoom until it sits
+   * in the middle at a comfortable size. Two passes: the first is approximate because
+   * zooming changes what is visible, the second settles it. Purely presentational: the
+   * library still opens every bundle on its shipped pose, and this is also the framing
+   * the posters were captured at.
+   */
+  function fitToView(v, fill = 0.86) {
+    const gl = v.gl;
+    const { width, height } = v.canvas;
+    if (!width || !height) return;
+    const pixels = new Uint8Array(width * height * 4);
+
+    for (let pass = 0; pass < 2; pass++) {
+      v.renderFrame();
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+      // The background is (13, 13, 15); anything meaningfully brighter is surface.
+      let minX = width, maxX = -1, minY = height, maxY = -1;
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const i = (y * width + x) * 4;
+          if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 60) {
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+      if (maxX < 0) return; // nothing drawn - leave the shipped pose alone
+
+      // readPixels is bottom-up, which is also the sign convention of `up` below.
+      const offsetX = (minX + maxX) / 2 / width - 0.5;
+      const offsetY = (minY + maxY) / 2 / height - 0.5;
+      const halfHeight = v.camera.radius * Math.tan((v.config.initial_camera.fov_deg * Math.PI) / 360);
+      const halfWidth = halfHeight * (width / height);
+
+      const [right, up] = v.camera.forwardAxes;
+      const target = v.camera.origin.map(
+        (c, i) => c + 2 * offsetX * halfWidth * right[i] + 2 * offsetY * halfHeight * up[i],
+      );
+      const occupancy = Math.max((maxX - minX) / width, (maxY - minY) / height);
+      v.setCamera({ target, radius: v.camera.radius * (occupancy / fill) });
+    }
+  }
+
+  function settle() {
+    fitToView(viewer);
+    // R should return to what the visitor first saw, not to the pose the fit moved
+    // away from - here, that is also the frame the poster shows.
+    viewer.setHome();
+    progress.hidden = true;
+    stage.classList.add('live');
+    viewer.focus();
+  }
+
+  function onReadyFailed() {} // onError already reported it; this only stops the rejection
+
+  function render() {
+    cta.hidden = true;
+    progress.classList.remove('failed');
+    progress.hidden = false;
+    status.textContent = 'loading…';
+    try {
+      if (viewer) {
+        viewer.load(bundleUrl(current.name)).then(settle, onReadyFailed);
+        return;
+      }
+      viewer = new Snap3dViewer(canvas, bundleUrl(current.name), {
+        onProgress: (loaded, total) => {
+          $('bar').firstElementChild.style.width = `${(loaded / total) * 100}%`;
+          status.textContent =
+            loaded < total
+              ? `${(loaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`
+              : 'decompressing…';
+        },
+        onError: fail,
+      });
+      window.viewer = viewer; // a console handle, and what the smoke test drives
+      viewer.ready.then(settle, onReadyFailed);
+    } catch (error) {
+      fail(error);
+    }
+  }
+
+  function select(bundle) {
+    current = bundle;
+    for (const button of document.querySelectorAll('.thumb')) {
+      button.setAttribute('aria-current', String(button.dataset.bundle === bundle.name));
+    }
+    poster.src = posterUrl(bundle.name);
+    poster.alt = `${bundle.label}, rendered by the viewer`;
+    describe(bundle.name);
+    // Once the stage is live it stays live: switching subject reloads in place rather
+    // than dropping back to a still the visitor has already moved past.
+    if (viewer) render();
+  }
+
+  for (const bundle of BUNDLES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'thumb';
+    button.dataset.bundle = bundle.name;
+    button.innerHTML = '<img alt="" loading="lazy" decoding="async"><span></span>';
+    button.firstChild.src = thumbUrl(bundle.name);
+    button.lastChild.textContent = bundle.label;
+    button.addEventListener('click', () => select(bundle));
+    $('gallery').appendChild(button);
+  }
+
+  cta.addEventListener('click', render);
+  select(current);
+</script>
 </body>
 </html>

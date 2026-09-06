@@ -217,10 +217,15 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Converted web bundles: tens of MB of float16 atlas per run, all of it derivable
-# from a pipeline run by tools/export_web_bundle.py.
+# Export bundles are ~12 MB of atlas each and are reproducible from a pipeline run,
+# so they stay out - except the four the landing page's gallery renders live, which
+# have to be in the repo for CI to publish them.
 demo/bundles/*/
 demo/bundles/index.json
+!demo/bundles/photo_20260904_152839/
+!demo/bundles/photo_20260904_000809/
+!demo/bundles/nerf_chair/
+!demo/bundles/nerf_ship/
 
 # The build output. CI rebuilds it on every push to main and publishes it to
 # Pages, so a checked-in dist/ would only ever be a second, staler truth.

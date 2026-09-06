@@ -83,6 +83,11 @@ python tools/serve.py                               # http://127.0.0.1:8000/demo
 `?bundle=<name>` picks one when several are present; an optional
 `demo/bundles/index.json` (`{"bundles": ["a", "b"]}`) populates the picker.
 
+Four bundles are committed rather than ignored, because the published landing page
+renders them live and CI has to be able to publish what it did not build. They are
+~12 MB each; a fifth belongs in `demo/bundles/` and stays out of git unless the gallery
+grows to include it.
+
 ## Building and publishing
 
 ```
@@ -92,9 +97,16 @@ npm run check      # bundles every entry without writing anything
 ```
 
 `dist/` is gitignored. `.github/workflows/pages.yml` rebuilds it on every push to `main`
-and publishes it to GitHub Pages together with a landing page, so the URL in the Quick
-Start is always the build that matches `main` and no one ever hand-edits a build
-artifact. Enabling Pages is a one-time manual step: **Settings → Pages → Source: GitHub
+and publishes it to GitHub Pages together with the landing page, its posters and the
+four bundles, so the URL in the Quick Start is always the build that matches `main` and
+no one ever hand-edits a build artifact. The page itself loads that same
+`dist/viewer.js`, so a broken build is visible on the front page rather than only in a
+consumer's console.
+
+The landing page shows a still until someone presses **Render it live**: a visitor pays
+~210 kB to see what the viewer produces, and 12 MB only if they want to turn it. The
+stills are captured from the page itself, so the live render replaces them at the same
+framing. Enabling Pages is a one-time manual step: **Settings → Pages → Source: GitHub
 Actions**.
 
 The version is declared in both `package.json` and `src/index.js`; the build fails if
@@ -159,7 +171,8 @@ demo/demo.js                 which bundle to open, HUD wiring - policy, not rend
 demo/bundles/<run_id>/       an export stage dir, copied in (gitignored)
 tools/serve.py               static server with gzip; python -m http.server also works
 tools/build.mjs              esbuild: the three dist/ outputs
-pages/index.html             the Pages landing page
+pages/index.html             the Pages landing page: posters, gallery, live viewer
+pages/posters/               one still per bundle, plus a thumbnail for the gallery
 .github/workflows/pages.yml  build dist/ and deploy it on every push to main
 ```
 

@@ -39,8 +39,18 @@ jobs:
       - name: Assemble the site
         run: |
           mkdir -p _site/dist
-          cp pages/index.html _site/index.html
+          cp pages/index.html _site/
+          cp -r pages/posters _site/posters
           cp dist/* _site/dist/
+          # The gallery renders these live, so the bundles ship with the site. Their
+          # index.json is a demo-only convenience and is deliberately not copied.
+          mkdir -p _site/bundle
+          for dir in demo/bundles/*/; do
+            name=$(basename "$dir")
+            mkdir -p "_site/bundle/$name"
+            cp "$dir"/config.json "$dir"/mesh.glb "$dir"/sh.ktx2 "$dir"/height.ktx2 "_site/bundle/$name/"
+          done
+          du -sh _site _site/bundle
           ls -lh _site/dist
 
       - uses: actions/upload-pages-artifact@v3

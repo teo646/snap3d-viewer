@@ -58,6 +58,7 @@ export class Snap3dViewer {
     this.warnings = [];
 
     this._renderer = null;
+    this._home = null;
     this._raf = 0;
     this._dirty = true;
     this._running = this.options.autoStart;
@@ -115,6 +116,35 @@ export class Snap3dViewer {
     return this;
   }
 
+  /**
+   * Swap in a different bundle, keeping the context, the canvas and the loop.
+   *
+   * Tearing the viewer down and building a new one would be the obvious way, but
+   * `dispose()` drops the WebGL context and a canvas whose context has been lost hands
+   * back the same lost context on the next `getContext`. So the renderer is rebuilt
+   * and the camera re-derived from the new bundle - a different `up_vector` and a
+   * different opening pose are exactly what a second bundle brings.
+   *
+   * @returns {Promise<Snap3dViewer>} the same promise shape as `ready`
+   */
+  load(url) {
+    this.url = String(url).replace(/\/+$/, '');
+    this._renderer?.dispose();
+    this._renderer = null;
+    this.controls?.dispose();
+    this.controls = null;
+    this.camera = null;
+    this.config = null;
+    this.stats = null;
+    this.warnings = [];
+    this._home = null;
+    this.ready = this._load().catch((error) => {
+      this.options.onError?.(error);
+      throw error;
+    });
+    return this.ready;
+  }
+
   /** Draw one frame synchronously, outside the loop. */
   renderFrame() {
     if (this._renderer) this._draw();
@@ -135,20 +165,36 @@ export class Snap3dViewer {
     return this;
   }
 
-  /** The pose the bundle shipped as "open here", as setCamera takes it. */
+  /** The pose `resetCamera()` and the R key return to. Starts as the one the bundle
+   *  ships in `config.initial_camera`; `setHome` moves it. */
   get home() {
-    const initial = this.config?.initial_camera;
-    return initial && {
-      azimuth: initial.azimuth_deg,
-      elevation: initial.elevation_deg,
-      radius: initial.radius,
-      target: [...initial.target],
-    };
+    const pose = this.controls ? this.controls.home : this._home;
+    return pose && { ...pose, target: [...pose.target] };
   }
 
-  /** Back to that pose (R in the desktop viewer). */
+  /**
+   * Make `pose` - by default wherever the camera is now - the pose to return to.
+   * A page that reframes the shot on load wants R to come back to what the visitor
+   * first saw, not to a pose they never had.
+   */
+  setHome(pose = null) {
+    const next = pose ?? (this.camera && {
+      azimuth: this.camera.azimuth,
+      elevation: this.camera.elevation,
+      radius: this.camera.radius,
+      target: [...this.camera.origin],
+    });
+    if (!next) return this;
+    const home = { ...next, target: [...next.target] };
+    if (this.controls) this.controls.home = home;
+    this._home = home;
+    return this;
+  }
+
+  /** Back to the home pose (R in the desktop viewer). */
   resetCamera() {
-    if (this.home) this.setCamera(this.home);
+    const { home } = this;
+    if (home) this.setCamera(home);
     return this;
   }
 
@@ -188,7 +234,7 @@ export class Snap3dViewer {
     this._renderer?.dispose();
     this._renderer = null;
     // Frees the atlas immediately rather than at the GC's convenience, which matters
-    // on a phone where the next route may want the same 80 MB.
+    // on a phone where the next route may want the same ~38 MB.
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
 
@@ -205,6 +251,12 @@ export class Snap3dViewer {
     for (const warning of this.warnings) this._warn(warning);
 
     const initial = this.config.initial_camera;
+    this._home = {
+      azimuth: initial.azimuth_deg,
+      elevation: initial.elevation_deg,
+      radius: initial.radius,
+      target: [...initial.target],
+    };
     if (!this.camera) {
       this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
       this.camera.azimuth = initial.azimuth_deg;
