@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Snap3d Viewer</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --panel: rgba(16, 16, 20, 0.82);
+    --line: rgba(255, 255, 255, 0.11);
+    --text: #e8e8ea;
+    --muted: #8b8b96;
+    --accent: #7dd3c0;
+    --warn: #f0b866;
+    --error: #f08a8a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow: hidden;
+  }
+  #canvas { display: block; width: 100vw; height: 100vh; touch-action: none; cursor: grab; }
+  #canvas.shs-dragging { cursor: grabbing; }
+  /* The library makes the canvas focusable so keys reach it; the ring adds nothing
+     on a page that is nothing but canvas. */
+  #canvas:focus, #canvas:focus-visible { outline: none; }
+
+  .panel {
+    position: fixed;
+    background: var(--panel);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  #hud { top: 12px; left: 12px; min-width: 236px; }
+  #hud h1 { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; }
+  #hud select {
+    width: 100%;
+    margin: 0 0 8px;
+    padding: 3px 4px;
+    font: inherit;
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+  }
+  #hud select:not([data-many]) { display: none; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 1px 14px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+  #help { bottom: 12px; left: 12px; color: var(--muted); }
+  #help b { color: var(--text); font-weight: 600; }
+
+  #notes { top: 12px; right: 12px; max-width: 340px; display: none; }
+  #notes.visible { display: block; }
+  #notes p { margin: 0 0 6px; color: var(--warn); }
+  #notes p:last-child { margin-bottom: 0; }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 14px;
+    background: var(--bg);
+    transition: opacity 0.25s ease;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #bar { width: 260px; height: 3px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; }
+  #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
+  #status { color: var(--muted); }
+  #status.error {
+    max-width: min(760px, 88vw);
+    color: var(--error);
+    text-align: left;
+    white-space: pre-wrap;
+    max-height: 70vh;
+    overflow: auto;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<div class="panel" id="hud" hidden>
+  <h1 id="title">–</h1>
+  <select id="picker" aria-label="bundle"></select>
+  <dl>
+    <dt>mesh</dt><dd id="s-mesh">–</dd>
+    <dt>SH</dt><dd id="s-sh">–</dd>
+    <dt>atlas</dt><dd id="s-atlas">–</dd>
+    <dt>vram</dt><dd id="s-vram">–</dd>
+    <dt>coverage</dt><dd id="s-coverage">–</dd>
+    <dt>POM steps</dt><dd id="s-steps">–</dd>
+    <dt>fps</dt><dd id="s-fps">–</dd>
+  </dl>
+</div>
+
+<div class="panel" id="help" hidden>
+  <b>drag</b> orbit &nbsp; <b>wheel</b> zoom &nbsp; <b>WASD</b> pan &nbsp; <b>R</b> reset
+</div>
+
+<div class="panel" id="notes"></div>
+
+<div id="overlay">
+  <div id="bar"><i></i></div>
+  <div id="status">starting…</div>
+</div>
+
+<script type="module" src="./demo.js"></script>
+</body>
+</html>

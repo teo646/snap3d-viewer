@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Converted web bundles: tens of MB of float16 atlas per run, all of it derivable
+# from a pipeline run by tools/export_web_bundle.py.
+demo/bundles/*/
+demo/bundles/index.json
+
+# The build output. CI rebuilds it on every push to main and publishes it to
+# Pages, so a checked-in dist/ would only ever be a second, staler truth.
+node_modules/
+dist/
+_site/

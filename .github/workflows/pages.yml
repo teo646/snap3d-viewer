@@ -1,0 +1,58 @@
+# Builds dist/ and publishes it to GitHub Pages, so the <script src> in the README is
+# always the build that matches main. dist/ is gitignored on purpose: a checked-in
+# bundle is a second source of truth that drifts from src/ the first time someone
+# forgets to rebuild.
+#
+# Requires Pages to be enabled once, by hand: Settings -> Pages -> Source: GitHub Actions.
+
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; a queued one supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run build
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site/dist
+          cp pages/index.html _site/index.html
+          cp dist/* _site/dist/
+          ls -lh _site/dist
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
