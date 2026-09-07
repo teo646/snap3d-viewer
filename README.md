@@ -1,7 +1,7 @@
 # snap3d-viewer
 
-A WebGL2 viewer for SH-texture surface bundles — the browser counterpart to the
-pipeline's [`viewers/view_bundle.py`](../3d_recon_sh_texture/viewers/view_bundle.py).
+A WebGL2 viewer for **snap3d bundles** — the browser counterpart to the pipeline's
+[`viewers/view_bundle.py`](../snap3d/viewers/view_bundle.py).
 
 It renders the same thing that viewer does, by the same procedure: a low-poly mesh, a
 parallax-occlusion march through a baked height map to resolve each fragment's uv, and
@@ -15,7 +15,7 @@ changes as you move around it.
 <canvas id="canvas" style="width:100%;height:480px"></canvas>
 <script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"></script>
 <script>
-  const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
+  const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d/config.json');
 </script>
 ```
 
@@ -25,14 +25,14 @@ That is the whole integration. Drag to orbit, wheel to zoom, WASD or the arrows 
 ```js
 import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'bundles/my_run/config.json');
+const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d/config.json');
 await viewer.ready;
 ```
 
-The second argument is the bundle's `config.json`, or the directory holding it; the
-GLB and the two KTX2 textures are fetched from alongside it either way. **There is no
-conversion step** - this is the pipeline's export stage directory, copied or served as
-it stands.
+The second argument is the bundle's `config.json`, or the `.snap3d` folder holding it;
+the GLB and the two KTX2 textures are fetched from alongside it either way. **There is
+no conversion step** - this is the folder the pipeline's export stage wrote, copied or
+served as it stands.
 
 The loop is demand-driven: rAF runs while something is changing — a drag, a held key, a
 resize, an explicit `requestRender()` — and stops when the image settles, because a
@@ -41,7 +41,8 @@ still frame. Pass `{ render: 'always' }` for a continuously clocked loop.
 
 ### API
 
-`new Snap3dViewer(canvas, url, options)`, where `canvas` is an element or a selector.
+`new Snap3dViewer(canvas, url, options)`, where `canvas` is an element or a selector
+and `url` points at a snap3d bundle.
 
 | | |
 |---|---|
@@ -62,31 +63,53 @@ the module surface on it as statics — `Snap3dViewer.OrbitControls`,
 `Snap3dViewer.loadBundle`, `Snap3dViewer.VERSION` — so a script-tag user is not cut off
 from anything an `import` user gets.
 
-## The bundle
+## The snap3d bundle
 
-Four files, written by the pipeline's export stage, in formats a browser already reads:
+A **snap3d bundle** is one folder, named `<name>.snap3d`, holding four files the
+pipeline's export stage wrote in formats a browser already reads:
 
 ```
-config.json   up_vector, sh{degree, coefficients}, texture_resolution,
-              height{range, num_steps}, initial_camera
-mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
-sh.ktx2       RGBA16F array, one layer per SH coefficient; a is padding
-height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
+my_run.snap3d/
+  config.json   up_vector, sh{degree, coefficients}, texture_resolution,
+                height{range, num_steps}, initial_camera
+  mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
+  sh.ktx2       RGBA16F array, one layer per SH coefficient; a is padding
+  height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
 ```
 
-Copy an export stage dir into `demo/bundles/<name>/` and serve it:
+**`.snap3d` names the folder, not a container** - the way `.app` and `.framework` do it.
+There is nothing to unpack and no offsets to parse: the four sit in it as ordinary
+files, each fetched, cached and revalidated as itself, and `config.json` is still the
+entry point a viewer opens. The suffix carries the bundle's name out of the pipeline's
+tree, which is the one piece of provenance it does not otherwise hold, and it lets a
+folder be recognised as *the* deliverable rather than as some directory. The loader
+treats it as an ordinary directory URL, so a bundle exported before the convention -
+a plain folder - still loads.
+
+The export stage names the folder after its run (`photo_20260904_152839.snap3d`). The
+four bundles here are renamed to their subject on the way in - `framed_painting`,
+`model_house`, `nerf_chair`, `nerf_ship` - because they are what a visitor to the
+landing page reads, and a timestamp says nothing about what is on screen. Renaming
+costs the run id, so the mapping back to it lives in `tools/make_input_stacks.py`'s
+`IMAGE_SETS`, which needs both anyway.
+
+The `format` string inside `config.json` is unchanged (`sh_texture_bundle/2`): it names
+the payload format, and the folder convention did not change any payload.
+
+Copy a `.snap3d` folder into `demo/snap3d_bundles/` as it stands and serve it:
 
 ```
 python tools/serve.py                               # http://127.0.0.1:8000/demo/
 ```
 
 `?bundle=<name>` picks one when several are present; an optional
-`demo/bundles/index.json` (`{"bundles": ["a", "b"]}`) populates the picker.
+`demo/snap3d_bundles/index.json` (`{"snap3d_bundles": ["a", "b"]}`) populates the
+picker. Both take the bare name - the `.snap3d` suffix is added on the way to the URL.
 
 Four bundles are committed rather than ignored, because the published landing page
 renders them live and CI has to be able to publish what it did not build. They are
-~12 MB each; a fifth belongs in `demo/bundles/` and stays out of git unless the gallery
-grows to include it.
+~12 MB each; a fifth belongs in `demo/snap3d_bundles/` and stays out of git unless the
+gallery grows to include it.
 
 ## Building and publishing
 
@@ -176,7 +199,7 @@ src/ktx2.js                  KTX2 reader; inflates via DecompressionStream
 src/frame.js                 per-vertex normals and raw tangents, ported exactly
 demo/index.html              canvas, HUD, loading overlay
 demo/demo.js                 which bundle to open, HUD wiring - policy, not rendering
-demo/bundles/<run_id>/       an export stage dir, copied in (gitignored)
+demo/snap3d_bundles/<name>.snap3d/  a snap3d bundle, copied in as it stands
 tools/serve.py               static server with gzip; python -m http.server also works
 tools/build.mjs              esbuild: the three dist/ outputs
 pages/index.html             the Pages landing page: posters, gallery, live viewer

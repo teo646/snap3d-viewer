@@ -3,52 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Snap3d Viewer</title>
+<title>snap3d</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d0f'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%237dd3c0' stroke-width='2.5'/%3E%3Ccircle cx='12.5' cy='12.5' r='2.6' fill='%237dd3c0'/%3E%3C/svg%3E">
 <style>
   :root {
     color-scheme: dark;
     --bg: #0d0d0f; --panel: #141418; --line: #26262c;
     --text: #e8e8ea; --muted: #8b8b96; --accent: #7dd3c0; --error: #f08a8a;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    /* Restrained syntax colours - enough to read as code, not a rainbow. */
+    --c-tag: #7dd3c0; --c-attr: #9aa4b8; --c-str: #e3b778; --c-kw: #a5b4fc; --c-punct: #63636e;
   }
   * { box-sizing: border-box; }
   /* An id selector's `display` outranks the UA's [hidden] rule, and several below are
      id-scoped grids. Without this, `el.hidden = true` silently does nothing. */
   [hidden] { display: none !important; }
   body {
-    margin: 0; padding: 40px 24px 96px; background: var(--bg); color: var(--text);
+    margin: 0; padding: 56px 20px 96px; background: var(--bg); color: var(--text);
     font: 15px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   }
-  main { max-width: 760px; margin: 0 auto; }
-  h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.01em; }
-  h2 { font-size: 13px; margin: 40px 0 10px; color: var(--muted); font-weight: 600;
+  main { max-width: 820px; margin: 0 auto; }
+
+  h1 {
+    margin: 0 0 12px; font-size: clamp(40px, 8vw, 60px); font-weight: 640;
+    letter-spacing: -0.04em; line-height: 1;
+  }
+  h2 { font-size: 13px; margin: 44px 0 10px; color: var(--muted); font-weight: 600;
        text-transform: uppercase; letter-spacing: 0.08em; }
   p { margin: 0 0 14px; color: #c9c9d0; }
-  .lede { color: var(--muted); margin-bottom: 24px; }
+  .lede { font-size: 17px; line-height: 1.6; color: var(--muted); margin-bottom: 44px; max-width: 640px; }
+  .lede b { color: var(--text); font-weight: 600; }
   pre {
-    margin: 0 0 14px; padding: 14px 16px; overflow-x: auto;
-    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
-    font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin: 0 0 14px; padding: 15px 18px; overflow-x: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    font: 12.5px/1.7 var(--mono);
   }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  p > code, li > code, figcaption code { font-size: 0.9em; color: var(--accent); }
+  code { font-family: var(--mono); }
+  p > code, li > code { font-size: 0.9em; color: var(--accent); }
   a { color: var(--accent); }
   ul { margin: 0 0 14px; padding-left: 20px; color: #c9c9d0; }
   li { margin-bottom: 4px; }
   footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
            color: var(--muted); font-size: 13px; }
 
-  /* --- what it was made from, above what it became ----------------------- */
-  figure { margin: 0 0 34px; }
-  #provenance { display: grid; justify-items: center; gap: 6px; margin-bottom: 2px; }
-  /* A fixed box, not a fixed width: the stacks differ in aspect (a portrait capture
-     makes a taller pile than a square NeRF frame) and letting the height follow makes
-     the stage jump every time the subject changes. */
-  #inputs { display: block; width: min(548px, 100%); height: 170px; object-fit: contain; }
-  #capture { color: var(--muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-  #arrow { width: 22px; height: 30px; margin: 2px 0 4px; color: var(--muted); opacity: 0.7; }
+  /* --- the flow: images -> bundle -> render ---------------------------------- */
+  /* Every step is annotated from a rail down the left, so the eye follows one edge
+     instead of hunting for a centred arrow between blocks of different widths. */
+  #flow { margin-bottom: 10px; }
+  .node-label { display: block; margin-top: 9px; color: var(--muted); font: 11.5px/1.5 var(--mono); }
 
-  /* --- the stage: a still frame until someone asks for the real thing ----- */
+  .step { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 16px; margin: 16px 0; }
+  .arrow { width: 30px; height: 42px; color: #5b5b66; }
+  .step-title { display: block; color: var(--text); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
+  .step-note { color: var(--muted); font: 12px/1.5 var(--mono); word-break: break-all; }
+
+  /* Step 1: the images the surface was fit from. A fixed box, not a fixed width: the
+     stacks differ in aspect (a portrait capture makes a taller pile than a square NeRF
+     frame) and letting the height follow makes the page jump on every switch. */
+  #inputs { display: block; width: 100%; height: 176px; object-fit: contain; object-position: left center; }
+
+  /* Step 2: the bundle it became - the headline of the whole flow, and a link to the
+     four files themselves. */
+  #bundle-link {
+    display: inline-block; font: 600 clamp(22px, 4vw, 32px)/1.2 var(--mono);
+    letter-spacing: -0.02em; text-decoration: none; border-bottom: 2px solid transparent;
+  }
+  #bundle-link:hover { border-bottom-color: var(--accent); }
+  #bundle-link .suffix { color: var(--muted); }
+
+  /* Step 3: the stage - a still frame until someone asks for the real thing. */
   #stage {
     position: relative; aspect-ratio: 1516 / 944; width: 100%;
     background: #08080a; border: 1px solid var(--line); border-radius: 10px;
@@ -71,22 +94,21 @@
     background: linear-gradient(transparent, rgba(8, 8, 10, 0.8));
     text-align: center; transition: opacity 0.3s ease;
   }
-  #progress span {
-    color: var(--muted); font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  }
+  #progress span { color: var(--muted); font: 11px/1.4 var(--mono); }
   #bar { width: 220px; height: 3px; background: #22222a; border-radius: 2px; overflow: hidden; }
   #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
   #progress.failed span { color: var(--error); }
   #progress.failed #bar { display: none; }
 
-  figcaption {
+  #caption {
     display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between;
-    margin-top: 10px; color: var(--muted);
-    font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    margin-top: 10px; color: var(--muted); font: 12px/1.6 var(--mono);
   }
   #controls { visibility: hidden; }
+  #stage.live ~ #caption #controls { visibility: visible; }
 
-  #gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  /* The other subjects, each one a whole capture -> bundle -> render of its own. */
+  #gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
   .thumb {
     display: grid; gap: 6px; padding: 0; border: 0; background: none; cursor: pointer;
     font: inherit; text-align: left;
@@ -97,90 +119,103 @@
     transition: border-color 0.15s ease, opacity 0.15s ease; opacity: 0.62;
   }
   .thumb span {
-    color: var(--muted); font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--muted); font: 11px/1.3 var(--mono);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .thumb:hover img { opacity: 0.85; }
   .thumb[aria-current="true"] img { opacity: 1; border-color: var(--accent); }
   .thumb[aria-current="true"] span { color: var(--text); }
   @media (max-width: 520px) { #gallery { grid-template-columns: repeat(2, 1fr); } }
-  #stage.live ~ figcaption #controls { visibility: visible; }
+
+  /* Syntax colouring, written into the markup by hand - a highlighter library would
+     be the page's only dependency, for four lines of code. */
+  .t { color: var(--c-tag); }
+  .a { color: var(--c-attr); }
+  .s { color: var(--c-str); }
+  .k { color: var(--c-kw); }
+  .punct { color: var(--c-punct); }
 </style>
 </head>
 <body>
 <main>
-  <h1>Snap3d Viewer</h1>
+  <h1>snap3d</h1>
   <p class="lede">
-    A WebGL2 viewer for SH-texture surface bundles. It marches a parallax-occlusion ray
-    through a baked height atlas to resolve each fragment's uv, then evaluates a
-    spherical-harmonic fit of the view direction in the surface's local frame. There is
-    no lighting model and no material — the SH texture <em>is</em> the appearance.
+    Photograph an object from every angle and snap3d fits the images into a single
+    <b>.snap3d</b> bundle. One line of script embeds a live, turnable view of it in any
+    web page.
   </p>
 
-  <figure>
-    <div id="provenance">
+  <section id="flow">
+    <!-- 1. what went in -->
+    <div class="node">
       <img id="inputs" alt="" decoding="async">
-      <span id="capture"></span>
-      <svg id="arrow" viewBox="0 0 24 34" aria-hidden="true" focusable="false">
-        <path d="M12 1 V26 M4.5 19.5 L12 27.5 L19.5 19.5" fill="none" stroke="currentColor"
-              stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      <span class="node-label" id="capture"></span>
+    </div>
+
+    <div class="step">
+      <svg class="arrow" viewBox="0 0 30 42" aria-hidden="true" focusable="false">
+        <path d="M15 3 V32 M6 24.5 L15 34 L24 24.5" fill="none" stroke="currentColor"
+              stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
+      <div>
+        <span class="step-title">create bundle</span>
+        <a class="step-note" href="https://github.com/teo646/snap3d">https://github.com/teo646/snap3d</a>
+      </div>
     </div>
-    <div id="stage">
-      <!-- The default subject is inlined so the browser starts fetching it before this
-           script runs; `?bundle=` and the gallery below just re-point it. -->
-      <img id="poster" src="./posters/photo_20260904_152839.webp" width="1516" height="944"
-           decoding="async" alt="A gilded Renaissance picture frame rendered by the viewer.">
-      <canvas id="canvas"></canvas>
-      <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
+
+    <!-- 2. what came out - the headline, linking to the four files themselves -->
+    <div class="node">
+      <a id="bundle-link" href="#"><span id="bundle-name"></span><span class="suffix">.snap3d</span></a>
+      <span class="node-label">config.json &nbsp;·&nbsp; mesh.glb &nbsp;·&nbsp; sh.ktx2 &nbsp;·&nbsp; height.ktx2</span>
     </div>
-    <figcaption>
-      <span id="controls"><b>drag</b> to orbit &nbsp; <b>wheel</b> to zoom &nbsp; <b>R</b> to reset</span>
-      <span id="stats"></span>
-    </figcaption>
-    <div id="gallery"></div>
-  </figure>
 
-  <p>
-    Those are five of the images the surface was fit from, and below them is the result,
-    live — one draw call, drawn by the very <code>dist/viewer.js</code> the snippet
-    below loads. Turn it and watch the gilding: the highlights move because each texel
-    stores how it reflects in every direction, not a colour. Pick another subject and it
-    loads in place; the three you have not chosen are fetched quietly behind the one you
-    are looking at, so the switch is usually instant.
-  </p>
+    <div class="step">
+      <svg class="arrow" viewBox="0 0 30 42" aria-hidden="true" focusable="false">
+        <path d="M15 3 V32 M6 24.5 L15 34 L24 24.5" fill="none" stroke="currentColor"
+              stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div>
+        <span class="step-title">embed in any page</span>
+        <span class="step-note">one canvas, one script tag</span>
+      </div>
+    </div>
 
-  <h2>Use it from a script tag</h2>
-  <pre><code>&lt;canvas id="canvas" style="width:100%;height:480px"&gt;&lt;/canvas&gt;
-&lt;script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"&gt;&lt;/script&gt;
-&lt;script&gt;
-  const viewer = new Snap3dViewer(canvas, 'my_run/config.json');
-&lt;/script&gt;</code></pre>
-  <p>
-    The loop is demand-driven: it draws while something is changing and stops when the
-    image settles, so a still frame costs nothing to hold.
-  </p>
+    <pre><code><span class="punct">&lt;</span><span class="t">canvas</span> <span class="a">id</span><span class="punct">=</span><span class="s">"viewer"</span> <span class="a">style</span><span class="punct">=</span><span class="s">"width:100%;height:480px"</span><span class="punct">&gt;&lt;/</span><span class="t">canvas</span><span class="punct">&gt;</span>
+<span class="punct">&lt;</span><span class="t">script</span> <span class="a">src</span><span class="punct">=</span><span class="s">"https://teo646.github.io/snap3d-viewer/dist/viewer.js"</span><span class="punct">&gt;&lt;/</span><span class="t">script</span><span class="punct">&gt;</span>
+<span class="punct">&lt;</span><span class="t">script</span><span class="punct">&gt;</span>
+  <span class="k">new</span> Snap3dViewer<span class="punct">(</span>viewer<span class="punct">,</span> <span class="s" id="embed-path">''</span><span class="punct">);</span>
+<span class="punct">&lt;/</span><span class="t">script</span><span class="punct">&gt;</span></code></pre>
+
+    <!-- 3. the result, drawn by the very dist/viewer.js the snippet above loads -->
+    <div class="node">
+      <div id="stage">
+        <!-- The default subject is inlined so the browser starts fetching it before this
+             script runs; `?bundle=` and the gallery below just re-point it. -->
+        <img id="poster" src="./posters/framed_painting.webp" width="1516" height="944"
+             decoding="async" alt="A gilded Renaissance picture frame rendered by the viewer.">
+        <canvas id="canvas"></canvas>
+        <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
+      </div>
+      <div id="caption">
+        <span id="controls"><b>drag</b> to orbit &nbsp; <b>wheel</b> to zoom &nbsp; <b>R</b> to reset</span>
+        <span id="stats"></span>
+      </div>
+      <div id="gallery"></div>
+    </div>
+  </section>
 
   <h2>Or as a module</h2>
   <pre><code>import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'my_run/config.json');
+const viewer = new Snap3dViewer(canvas, 'my_run.snap3d/config.json');
 await viewer.ready;</code></pre>
   <p>
     The <code>&lt;script&gt;</code> build defines <code>Snap3dViewer</code> as the
     constructor itself, with the rest of the API on it as statics —
     <code>Snap3dViewer.OrbitControls</code>, <code>Snap3dViewer.loadBundle</code>,
-    <code>Snap3dViewer.VERSION</code>.
-  </p>
-
-  <h2>What an asset is</h2>
-  <p>
-    Four files, in formats the browser already reads: a <code>config.json</code>, a
-    <code>.glb</code> carrying positions, UVs and indices, and two <code>.ktx2</code>
-    textures — the SH coefficient atlas as an RGBA16F array, one layer per coefficient,
-    and a two-channel relief map holding displacement and atlas coverage. Point the
-    viewer at the <code>config.json</code>; the rest is fetched from alongside it. There
-    is no conversion step: this is the pipeline's export stage directory as it stands.
+    <code>Snap3dViewer.VERSION</code>. The loop is demand-driven either way: it draws
+    while something is changing and stops when the image settles, so a still frame
+    costs nothing to hold.
   </p>
 
   <h2>Requirements</h2>
@@ -191,20 +226,27 @@ await viewer.ready;</code></pre>
   </ul>
 
   <footer>
-    <a href="https://github.com/teo646/snap3d-viewer">github.com/teo646/snap3d-viewer</a>
-    · Apache-2.0
+    <a href="https://github.com/teo646/snap3d">snap3d</a> ·
+    <a href="https://github.com/teo646/snap3d-viewer">snap3d-viewer</a> ·
+    Apache-2.0
   </footer>
 </main>
 
 <script src="./dist/viewer.js"></script>
 <script>
-  // Four runs from the pipeline, each an export stage directory copied in as it stands.
+  // Four runs from the pipeline, each a `<name>.snap3d` folder copied in as it stands.
+  // The bundle folder, the poster and the input stack are all named from `name`.
   const BUNDLES = [
-    { name: 'photo_20260904_152839', label: 'framed painting', capture: '80 photos' },
-    { name: 'photo_20260904_000809', label: 'DTU model house', capture: '49 photos' },
-    { name: 'nerf_chair', label: 'nerf chair', capture: '100 renders' },
-    { name: 'nerf_ship', label: 'nerf ship', capture: '100 renders' },
+    { name: 'framed_painting', label: 'framed painting', images: 80 },
+    { name: 'model_house', label: 'DTU model house', images: 49 },
+    { name: 'nerf_chair', label: 'nerf chair', images: 100 },
+    { name: 'nerf_ship', label: 'nerf ship', images: 100 },
   ];
+
+  // Where the bundles actually live. A static host serves no directory index, so the
+  // published copy under ./bundle/ cannot be browsed - the repo folder can.
+  const SOURCE_TREE =
+    'https://github.com/teo646/snap3d-viewer/tree/main/demo/snap3d_bundles';
 
   const $ = (id) => document.getElementById(id);
   const stage = $('stage');
@@ -212,7 +254,7 @@ await viewer.ready;</code></pre>
   const status = $('status');
   const poster = $('poster');
 
-  const bundleUrl = (name) => `./bundle/${name}/config.json`;
+  const bundleUrl = (name) => `./bundle/${name}.snap3d/config.json`;
   const posterUrl = (name) => `./posters/${name}.webp`;
   const thumbUrl = (name) => `./posters/${name}.thumb.webp`;
   const inputsUrl = (name) => `./inputs/${name}.webp`;
@@ -365,6 +407,8 @@ await viewer.ready;</code></pre>
     }
   }
 
+  /** Re-point every stage of the flow at one subject: what went in, the bundle it
+   *  became, the line that embeds it, and the render it produces. */
   function select(bundle) {
     if (bundle.name === current.name && viewer) return;
     current = bundle;
@@ -373,11 +417,17 @@ await viewer.ready;</code></pre>
     for (const button of document.querySelectorAll('.thumb')) {
       button.setAttribute('aria-current', String(button.dataset.bundle === bundle.name));
     }
+
+    $('inputs').src = inputsUrl(bundle.name);
+    $('inputs').alt = `Five of the ${bundle.images} images the ${bundle.label} was fit from`;
+    $('capture').textContent = `${bundle.images} images`;
+
+    $('bundle-name').textContent = bundle.name;
+    $('bundle-link').href = `${SOURCE_TREE}/${bundle.name}.snap3d`;
+    $('embed-path').textContent = `'${bundle.name}.snap3d/config.json'`;
+
     poster.src = posterUrl(bundle.name);
     poster.alt = `${bundle.label}, rendered by the viewer`;
-    $('inputs').src = inputsUrl(bundle.name);
-    $('inputs').alt = `Five of the ${bundle.capture} the ${bundle.label} was fit from`;
-    $('capture').textContent = bundle.capture; // the arrow below says the rest
     stage.classList.remove('live');
     describe(bundle.name);
     render();

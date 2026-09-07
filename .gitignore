@@ -217,15 +217,15 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Export bundles are ~12 MB of atlas each and are reproducible from a pipeline run,
+# snap3d bundles are ~12 MB of atlas each and are reproducible from a pipeline run,
 # so they stay out - except the four the landing page's gallery renders live, which
 # have to be in the repo for CI to publish them.
-demo/bundles/*/
-demo/bundles/index.json
-!demo/bundles/photo_20260904_152839/
-!demo/bundles/photo_20260904_000809/
-!demo/bundles/nerf_chair/
-!demo/bundles/nerf_ship/
+demo/snap3d_bundles/*/
+demo/snap3d_bundles/index.json
+!demo/snap3d_bundles/framed_painting.snap3d/
+!demo/snap3d_bundles/model_house.snap3d/
+!demo/snap3d_bundles/nerf_chair.snap3d/
+!demo/snap3d_bundles/nerf_ship.snap3d/
 
 # The build output. CI rebuilds it on every push to main and publishes it to
 # Pages, so a checked-in dist/ would only ever be a second, staler truth.

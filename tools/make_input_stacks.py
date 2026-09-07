@@ -20,12 +20,18 @@ import numpy as np
 from PIL import Image, ImageOps
 
 ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_RUNS = ROOT.parent / "3d_recon_sh_texture" / "data" / "runs"
+DEFAULT_RUNS = ROOT.parent / "snap3d" / "data" / "runs"
 
-# The bundle name the page uses -> where that run's ingest images live.
+# The name the page knows a bundle by -> where that run's ingest images live.
+#
+# The two photo captures are named for their subject rather than for the run that
+# produced them, because a landing page reads better than `photo_20260904_152839` does.
+# That makes this table the one place the subject name and the pipeline run id are
+# written side by side, so keep it that way: it is what tells you which run to re-export
+# a bundle from.
 IMAGE_SETS = {
-    "photo_20260904_152839": "photo_20260904_152839/01_ingest/images/train",
-    "photo_20260904_000809": "photo_20260904_000809/01_ingest/images/photos",
+    "framed_painting": "photo_20260904_152839/01_ingest/images/train",
+    "model_house": "photo_20260904_000809/01_ingest/images/photos",
     "nerf_chair": "nerf_chair/01_ingest/images",
     "nerf_ship": "nerf_ship/01_ingest/images",
 }

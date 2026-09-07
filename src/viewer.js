@@ -1,10 +1,11 @@
 // Snap3dViewer - the whole library behind one class.
 //
-//   const viewer = new Snap3dViewer(canvas, './bundles/my_run');
+//   const viewer = new Snap3dViewer(canvas, './bundles/my_run.snap3d');
 //   await viewer.ready;
 //
-// It owns a WebGL2 context on `canvas`, loads an export bundle (config.json + a GLB +
-// two KTX2 textures) and renders it exactly as viewers/view_bundle.py does.
+// It owns a WebGL2 context on `canvas`, loads a snap3d bundle (config.json + a GLB +
+// two KTX2 textures, in a `<run_id>.snap3d` folder) and renders it exactly as
+// viewers/view_bundle.py does.
 //
 // The loop is demand-driven by default. The desktop original spins at a fixed 60 Hz
 // because it owns the machine; a viewer embedded in someone's page does not, and a
@@ -42,7 +43,7 @@ const WEBGL2_MISSING =
 export class Snap3dViewer {
   /**
    * @param {HTMLCanvasElement|string} canvas  element, or a selector for one
-   * @param {string} url  the bundle's `config.json`, or the directory holding it
+   * @param {string} url  the bundle's `config.json`, or the `.snap3d` folder holding it
    * @param {object} [options]  see VIEWER_DEFAULTS
    */
   constructor(canvas, url, options = {}) {

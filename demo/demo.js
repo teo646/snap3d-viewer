@@ -6,8 +6,14 @@
 
 import { Snap3dViewer } from '../src/index.js';
 
-const BUNDLES_ROOT = './bundles';
-const DEFAULT_BUNDLE = 'photo_20260904_152839';
+const BUNDLES_ROOT = './snap3d_bundles';
+const DEFAULT_BUNDLE = 'framed_painting';
+
+// A snap3d bundle's folder is `<name>.snap3d`. Everything a person sees or types - the
+// picker, ?bundle=, index.json - is the bare name; the suffix is added on the way to
+// the URL.
+const BUNDLE_SUFFIX = '.snap3d';
+const bundleUrl = (name) => `${BUNDLES_ROOT}/${name}${BUNDLE_SUFFIX}`;
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('canvas');
@@ -29,13 +35,13 @@ function note(message) {
   notes.classList.add('visible');
 }
 
-/** The bundle to show: ?bundle=<name>, else the first one in bundles/index.json. */
+/** The bundle to show: ?bundle=<name>, else the first in snap3d_bundles/index.json. */
 async function resolveBundleName() {
   const requested = new URLSearchParams(location.search).get('bundle');
   const index = await fetch(`${BUNDLES_ROOT}/index.json`)
     .then((r) => (r.ok ? r.json() : null))
     .catch(() => null);
-  const names = index?.bundles ?? [];
+  const names = index?.snap3d_bundles ?? [];
   // index.json is optional: it only exists to populate the picker when several runs
   // have been copied in. One bundle needs no index.
   if (requested) return [requested, names.length ? names : [requested]];
@@ -77,7 +83,7 @@ async function main() {
     idleTimer = setTimeout(() => { $('s-fps').textContent = 'idle'; }, 1000);
   };
 
-  const viewer = new Snap3dViewer(canvas, `${BUNDLES_ROOT}/${name}`, {
+  const viewer = new Snap3dViewer(canvas, bundleUrl(name), {
     onProgress: (loaded, total) => {
       $('bar').firstElementChild.style.width = `${(loaded / total) * 100}%`;
       status.textContent =

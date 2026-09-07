@@ -1,7 +1,7 @@
 {
   "name": "snap3d-viewer",
   "version": "0.1.0",
-  "description": "WebGL2 viewer for SH-texture surface bundles: parallax-occlusion march plus a spherical-harmonic evaluation of the view direction, in the browser.",
+  "description": "WebGL2 viewer for snap3d bundles: parallax-occlusion march plus a spherical-harmonic evaluation of the view direction, in the browser.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

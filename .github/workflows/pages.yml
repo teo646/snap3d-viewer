@@ -43,10 +43,12 @@ jobs:
           cp -r pages/posters _site/posters
           cp -r pages/inputs _site/inputs
           cp dist/* _site/dist/
-          # The gallery renders these live, so the bundles ship with the site. Their
+          # The gallery renders these live, so the bundles ship with the site. The
+          # `<name>.snap3d` folder name is carried over as it stands - the published
+          # URL is then the same shape as the folder the pipeline wrote. Their
           # index.json is a demo-only convenience and is deliberately not copied.
           mkdir -p _site/bundle
-          for dir in demo/bundles/*/; do
+          for dir in demo/snap3d_bundles/*.snap3d/; do
             name=$(basename "$dir")
             mkdir -p "_site/bundle/$name"
             cp "$dir"/config.json "$dir"/mesh.glb "$dir"/sh.ktx2 "$dir"/height.ktx2 "_site/bundle/$name/"

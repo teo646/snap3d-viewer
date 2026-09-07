@@ -1,4 +1,4 @@
-// Loads an export bundle: four files, in formats the browser already understands.
+// Loads a snap3d bundle: four files, in formats the browser already understands.
 //
 //   config.json   up_vector, sh{...}, texture_resolution, height{...}, initial_camera
 //   mesh.glb      POSITION, TEXCOORD_0, indices - and nothing else
@@ -11,11 +11,18 @@
 // the row flip that puts KTX2's first row at v=0 for GL's bottom-left origin.
 //
 // The per-vertex frame is not in the bundle; frame.js recomputes it from the geometry.
+//
+// The pipeline writes those four into a folder named `<run_id>.snap3d`, so a bundle
+// carries its capture's name wherever it is copied to. That is a naming convention and
+// not a container - there is nothing to unpack, and `config.json` is still the entry
+// point - so a `.snap3d` URL is loaded exactly like any other directory.
 
 import { readGlb } from './glb.js';
 import { readKtx2 } from './ktx2.js';
 import { vertexFrameAttributes } from './frame.js';
 
+// The `format` string config.json carries. It names the payload format, which the
+// `.snap3d` folder convention did not change, so it is still the pipeline's original.
 const BUNDLE_FORMAT = 'sh_texture_bundle/';
 
 /** Stream one URL, reporting bytes as they arrive. */
@@ -63,7 +70,8 @@ function flipRows(data, width, height, layers, channels) {
 }
 
 /**
- * @param {string} url  the bundle's `config.json`, or the directory holding it
+ * @param {string} url  the bundle's `config.json`, or the `<run_id>.snap3d` folder
+ *   holding it (any directory works; the suffix is a label, not a requirement)
  * @param {(loaded:number, total:number) => void} onProgress
  */
 export async function loadBundle(url, onProgress = () => {}) {
@@ -77,7 +85,7 @@ export async function loadBundle(url, onProgress = () => {}) {
     throw new Error(`${configUrl} is not JSON - is that a bundle?`);
   });
   if (!String(config.format).startsWith(BUNDLE_FORMAT)) {
-    throw new Error(`${baseUrl} is not an export bundle (format "${config.format}")`);
+    throw new Error(`${baseUrl} is not a snap3d bundle (format "${config.format}")`);
   }
 
   // All three requests are issued at once so their Content-Lengths give a real total
