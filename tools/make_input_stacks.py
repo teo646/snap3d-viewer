@@ -40,6 +40,7 @@ CARD = 300                              # long side of one card, at 2x for retin
 ANGLES = [-7.0, -3.5, 0.0, 3.5, 7.0]
 STEP = 190                              # ~35% overlap: enough to read as a pile, little
 BORDER = 4                              # enough to hide the card behind it
+BORDER_COLOR = (232, 232, 234)          # #e8e8ea, the page's --accent-2
 BACKDROP = (18, 18, 22)                 # what a matted frame sits on, instead of black
 SUFFIXES = {".jpg", ".jpeg", ".png"}
 
@@ -72,7 +73,7 @@ def stack(paths: list[Path]) -> Image.Image:
     for path, angle in zip(paths, ANGLES):
         image = load(path)
         image.thumbnail((CARD, CARD), Image.LANCZOS)
-        framed = Image.new("RGB", (image.width + BORDER * 2, image.height + BORDER * 2), (232, 232, 234))
+        framed = Image.new("RGB", (image.width + BORDER * 2, image.height + BORDER * 2), BORDER_COLOR)
         framed.paste(image, (BORDER, BORDER))
         card = framed.rotate(angle, expand=True, resample=Image.BICUBIC).convert("RGBA")
         # rotate() fills the new corners opaquely; the alpha has to come from a mask

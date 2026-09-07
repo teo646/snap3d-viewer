@@ -15,7 +15,7 @@ changes as you move around it.
 <canvas id="canvas" style="width:100%;height:480px"></canvas>
 <script src="https://teo646.github.io/snap3d-viewer/dist/viewer.js"></script>
 <script>
-  const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d/config.json');
+  const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d');
 </script>
 ```
 
@@ -25,7 +25,7 @@ That is the whole integration. Drag to orbit, wheel to zoom, WASD or the arrows 
 ```js
 import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
 
-const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d/config.json');
+const viewer = new Snap3dViewer(canvas, 'bundles/my_run.snap3d');
 await viewer.ready;
 ```
 

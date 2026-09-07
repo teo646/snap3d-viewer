@@ -9,10 +9,23 @@
   :root {
     color-scheme: dark;
     --bg: #0d0d0f; --panel: #141418; --line: #26262c;
-    --text: #e8e8ea; --muted: #8b8b96; --accent: #7dd3c0; --error: #f08a8a;
+    --text: #8b8b96; --accent: #7dd3c0; --error: #f08a8a;
     --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     /* Restrained syntax colours - enough to read as code, not a rainbow. */
     --c-tag: #7dd3c0; --c-attr: #9aa4b8; --c-str: #e3b778; --c-kw: #a5b4fc; --c-punct: #63636e;
+    /* The one warm colour on an otherwise dark, teal-accented page. Two unrelated
+       jobs share it rather than each getting their own hardcoded #ffdfb7: emphasis
+       (the title, the section subtitles, "snap3d" in the lede) and the one background
+       that isn't --bg or --panel (the render stage - passed to the viewer as its
+       `background` option, so the WebGL clear colour matches the CSS around it - and
+       the bundle-link box). One variable means both jobs move together if this ever
+       changes again, instead of a hunt through the file for every literal #ffdfb7. */
+    --accent-2: #e8e8ea;
+    /* The photo stack, the bundle link and the render stage each set their own vertical
+       margin (the stack has to, to combine it with auto-centring) rather than all
+       inheriting one rule - this is the one number shared between those declarations,
+       so changing it here moves all three together instead of just two of them. */
+    --flow-gap: 80px;
   }
   * { box-sizing: border-box; }
   /* An id selector's `display` outranks the UA's [hidden] rule, and several below are
@@ -25,14 +38,22 @@
   main { max-width: 820px; margin: 0 auto; }
 
   h1 {
-    margin: 0 0 12px; font-size: clamp(40px, 8vw, 60px); font-weight: 640;
-    letter-spacing: -0.04em; line-height: 1;
+    margin: 0 0 12px; text-align: center; font-size: clamp(30px, 8vw, 50px); font-weight: 640;
+    letter-spacing: -0.04em; line-height: 1; color: var(--accent-2);
   }
-  h2 { font-size: 13px; margin: 44px 0 10px; color: var(--muted); font-weight: 600;
-       text-transform: uppercase; letter-spacing: 0.08em; }
+  /* The three section subtitles - About / Demo / Requirements - a step below the
+     title, not the small uppercase caption a lone "Requirements" label used to be.
+     `display:flex` is so "Demo" can carry its subject picker right beside the word;
+     a text-only h2 (About, Requirements) lays out identically to block under flex. */
+  h2 {
+    margin: 56px 0 16px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    color: var(--text); font-size: clamp(19px, 3.4vw, 23px);
+    font-weight: 700; letter-spacing: -0.01em;
+  }
+  main > h2:first-of-type { margin-top: 30px; }
   p { margin: 0 0 14px; color: #c9c9d0; }
-  .lede { font-size: 17px; line-height: 1.6; color: var(--muted); margin-bottom: 44px; max-width: 640px; }
-  .lede b { color: var(--text); font-weight: 600; }
+  .lede { font-size: 17px; line-height: 1.6; color: var(--text); }
+  .lede b { color: var(--accent-2); font-weight: 600; }
   pre {
     margin: 0 0 14px; padding: 15px 18px; overflow-x: auto;
     background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
@@ -44,37 +65,131 @@
   ul { margin: 0 0 14px; padding-left: 20px; color: #c9c9d0; }
   li { margin-bottom: 4px; }
   footer { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
-           color: var(--muted); font-size: 13px; }
+           color: var(--text); font-size: 13px; }
+
+  /* A small mono dropdown, the look shared by the subject picker (now inline with the
+     "Demo" heading) and the embed-style picker - same panel, border and chevron, so
+     the two read as one control language.
+     The real bug behind an overlapping chevron: the SVG carries only a viewBox, no
+     width/height, so with no `background-size` it has an aspect ratio but no
+     intrinsic size - CSS then sizes it like `contain` against the *whole padding
+     box*, blowing a 12px glyph up to the select's own height (~30px) and burying it
+     under the text. `background-size` below is what actually fixes that; `min-width`
+     is only the second-order guard against a native select's auto-width not always
+     growing to fit author padding. */
+  .select-mono {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    padding: 7px 32px 7px 13px; border-radius: 7px;
+    background: var(--panel)
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 L6 7.5 L9 4.5' fill='none' stroke='%238b8b96' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+      no-repeat right 11px center;
+    background-size: 10px 10px;
+    border: 1px solid var(--line); color: var(--text);
+    font: 600 13px/1.3 var(--mono); cursor: pointer;
+  }
+  .select-mono:hover { border-color: #3a3a44; }
+  .select-mono:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .select-mono option { background: var(--panel); color: var(--text); }
+  #subject { min-width: 178px; }     /* "DTU model house" is the longest label */
+  #embed-type { min-width: 128px; }  /* "script tag" is the longest label */
 
   /* --- the flow: images -> bundle -> render ---------------------------------- */
-  /* Every step is annotated from a rail down the left, so the eye follows one edge
-     instead of hunting for a centred arrow between blocks of different widths. */
   #flow { margin-bottom: 10px; }
-  .node-label { display: block; margin-top: 9px; color: var(--muted); font: 11.5px/1.5 var(--mono); }
+  .node-label { display: block; margin-top: 9px; color: var(--text); font: 11.5px/1.5 var(--mono); }
 
-  .step { display: grid; grid-template-columns: 30px 1fr; align-items: center; gap: 16px; margin: 16px 0; }
-  .arrow { width: 30px; height: 42px; color: #5b5b66; }
-  .step-title { display: block; color: var(--text); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; }
-  .step-note { color: var(--muted); font: 12px/1.5 var(--mono); word-break: break-all; }
-
-  /* Step 1: the images the surface was fit from. A fixed box, not a fixed width: the
-     stacks differ in aspect (a portrait capture makes a taller pile than a square NeRF
-     frame) and letting the height follow makes the page jump on every switch. */
-  #inputs { display: block; width: 100%; height: 176px; object-fit: contain; object-position: left center; }
-
-  /* Step 2: the bundle it became - the headline of the whole flow, and a link to the
-     four files themselves. */
-  #bundle-link {
-    display: inline-block; font: 600 clamp(22px, 4vw, 32px)/1.2 var(--mono);
-    letter-spacing: -0.02em; text-decoration: none; border-bottom: 2px solid transparent;
+  /* `width: fit-content` + `margin: auto` centres the whole arrow+content pair as one
+     unit, the same treatment as the photo stack and the bundle link below - equal
+     margin on either side rather than pinned to a left rail. */
+  .step {
+    display: grid; grid-template-columns: 44px auto; gap: 18px;
+    width: fit-content; max-width: 100%; margin: 22px auto;
   }
-  #bundle-link:hover { border-bottom-color: var(--accent); }
-  #bundle-link .suffix { color: var(--muted); }
+  /* A straight rail, not a fixed-size glyph: the line is a flexed bar that stretches
+     to fill the row (`align-self: stretch`, the grid default), so for the embed step -
+     where the row holds the code sample too - it reaches all the way down beside it,
+     and for the short "creates bundle" row it stays just as short. Only the arrowhead
+     at the foot has a fixed size. */
+  .step .arrow { display: flex; flex-direction: column; align-items: center; width: 44px; }
+  /* Bolder and coloured: the accent teal (used nowhere else outside links) is what
+     makes the flow read as a single guided path rather than a faint structural mark. */
+  .arrow-line { flex: 1 1 auto; width: 9px; min-height: 30px; background: var(--text);}
+  /* A solid filled triangle, not an open two-stroke chevron: an open V's ink at its
+     top edge sits only at its two far corners, with nothing in the middle where the
+     lines haven't started to converge yet - so a narrow centred line above it can have
+     a zero-gap *bounding box* and still visibly miss the ink on both sides. A filled
+     shape has ink across its whole top edge, so the line lands on it wherever it sits. */
+  /* A deliberate 1px overlap, not a flush 0px join: on a HiDPI screen (devicePixelRatio
+     2+) the line and the head are two separately-rasterized elements, and their shared
+     edge can land on a non-integer device pixel - each one then rounds independently,
+     which can leave a hairline of background showing even when the CSS geometry itself
+     computes to a perfect 0px gap. Overlapping on purpose absorbs that rounding. */
+  .arrow-head { width: 25px; height: 20px; color: var(--text); flex-shrink: 0; margin-top: -1px; }
+  .step-title { display: block; color: var(--text); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+  .step-title a { font-weight: 700; color: var(--text);}
+  /* Back to the page's own dark panel/border/text - only `.step-code`'s own rule needs
+     touching to revert, since the `.t`/`.a`/`.s`/`.k`/`.punct` span colours were never
+     overridden here beyond what a light background needed; removing that override
+     lets the global (dark-theme) syntax colours apply again unchanged.
+     Shrinks to its longest line rather than filling the column - `pre`'s white-space
+     keeps every line unwrapped, so `width: fit-content` sizes the card to that line
+     exactly. `overflow-x: auto` (from the global `pre` rule) stays as the fallback for
+     a viewport too narrow even for the shrunk box. font-size is 80% of the other code
+     block's 12.5px - a fifth smaller, not just visually "a bit smaller". */
+  .step-code {
+    margin: 10px 0 0; width: fit-content; max-width: 100%;
+    background: var(--panel); border-color: var(--line); color: var(--text); font-size: 10px;
+  }
+
+  /* Every node in the flow - the photo stack, the bundle link, the render stage -
+     is centred as a group, each at its own natural width rather than stretched to
+     fill the column. The vertical margin matches `.step`'s own, so node and arrow
+     collapse into one even rhythm rather than adding up to a lopsided gap. */
+  .node { text-align: center; margin: var(--flow-gap) 0; }
+
+  /* Step 1: the images the surface was fit from, at their own aspect ratio and no
+     frame - just bigger than a caption-sized thumbnail. `height` rather than `width`
+     is what's fixed, so the box does not jump between subjects even though the stacks
+     differ in aspect (a portrait capture makes a taller pile than a square NeRF
+     frame); `inline-block` on the wrapper then shrinks it to the image's actual
+     rendered width, which is what lets `#capture` sit at the stack's own corner
+     instead of some empty margin beside it. */
+  /* `.node`'s text-align:center centres an *inline-block child* - useless on this
+     element, since it carries both classes itself. `width:fit-content` plus
+     `margin:auto` is what actually centres the box; the vertical 22px is repeated
+     here because this margin shorthand replaces (does not merge with) `.node`'s. */
+  .node-input { position: relative; width: fit-content; max-width: 100%; margin: var(--flow-gap) auto; }
+  #inputs { display: block; width: auto; max-width: 100%; height: 230px; object-fit: contain; }
+  /* Below the stack now, not an overlay badge on top of it - a caption never sits on
+     top of the thing it's captioning. */
+  #capture { display: block; margin-top: 8px; color: var(--text); font: 11px/1.4 var(--mono); text-align: right; }
+
+  /* Step 2: the bundle it became - a plain, boxed folder rather than styled type, so
+     the emphasis in the flow stays on the flow and not on typography. Name and suffix
+     share one text style; only the folder icon carries colour, as the one visual cue
+     for "this is a folder". 90% wide and centred: full width read as just another bar
+     matching the stage below it, and this is the one node in the flow that is not
+     itself a media viewport. */
+  #bundle-link {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 90%; margin: 0 auto;
+    padding: 30px 16px; border-radius: 8px;
+    background: var(--accent-2); border: 1px solid var(--line);
+    color: #696976; font: 500 18px/1.3 var(--mono);
+    text-decoration: none; transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  /* A darker step of the same peach, kept in step with --accent-2 rather than left as
+     the old grey hover - a grey flash against a peach box would read as a mismatch,
+     not a highlight. */
+  #bundle-link:hover { border-color: #c9a878; background: #edc99e; }
+  #bundle-link .folder-icon { width: 25px; height: 25px; color: #acacb0; flex-shrink: 0; }
+  /* The gap above sits between the icon and the name - not between the name and its
+     `.snap3d` suffix, which must read as one unbroken string. Wrapping both in a
+     single flex item is what keeps that inner pair gap-free. */
+  #bundle-link .bundle-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* Step 3: the stage - a still frame until someone asks for the real thing. */
   #stage {
     position: relative; aspect-ratio: 1516 / 944; width: 100%;
-    background: #08080a; border: 1px solid var(--line); border-radius: 10px;
+    background: var(--accent-2); border: 1px solid var(--line); border-radius: 10px;
     overflow: hidden;
   }
   #stage > img, #stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
@@ -94,7 +209,7 @@
     background: linear-gradient(transparent, rgba(8, 8, 10, 0.8));
     text-align: center; transition: opacity 0.3s ease;
   }
-  #progress span { color: var(--muted); font: 11px/1.4 var(--mono); }
+  #progress span { color: var(--text); font: 11px/1.4 var(--mono); }
   #bar { width: 220px; height: 3px; background: #22222a; border-radius: 2px; overflow: hidden; }
   #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
   #progress.failed span { color: var(--error); }
@@ -102,33 +217,22 @@
 
   #caption {
     display: flex; flex-wrap: wrap; gap: 4px 18px; justify-content: space-between;
-    margin-top: 10px; color: var(--muted); font: 12px/1.6 var(--mono);
+    margin-top: 10px; color: var(--text); font: 12px/1.6 var(--mono);
   }
   #controls { visibility: hidden; }
   #stage.live ~ #caption #controls { visibility: visible; }
 
-  /* The other subjects, each one a whole capture -> bundle -> render of its own. */
-  #gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
-  .thumb {
-    display: grid; gap: 6px; padding: 0; border: 0; background: none; cursor: pointer;
-    font: inherit; text-align: left;
-  }
-  .thumb img {
-    display: block; width: 100%; aspect-ratio: 1516 / 944; object-fit: cover;
-    background: #08080a; border: 1px solid var(--line); border-radius: 6px;
-    transition: border-color 0.15s ease, opacity 0.15s ease; opacity: 0.62;
-  }
-  .thumb span {
-    color: var(--muted); font: 11px/1.3 var(--mono);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .thumb:hover img { opacity: 0.85; }
-  .thumb[aria-current="true"] img { opacity: 1; border-color: var(--accent); }
-  .thumb[aria-current="true"] span { color: var(--text); }
-  @media (max-width: 520px) { #gallery { grid-template-columns: repeat(2, 1fr); } }
+  /* The embed step's own head row - the script/module picker sits right beside the
+     title, not pushed to the far edge; `min-width` on #embed-type (below) is what
+     keeps its chevron clear of the option text at this width. */
+  /* The head row and the code sample below it stack in the same grid column and
+     share one left edge; `width: fit-content` here (rather than the default flex
+     block filling the column) is what stops this row stretching to match the wider
+     code sample instead of staying its own natural width. */
+  .step-embed-head { display: flex; align-items: center; gap: 12px; width: fit-content; }
 
   /* Syntax colouring, written into the markup by hand - a highlighter library would
-     be the page's only dependency, for four lines of code. */
+     be the page's only dependency, for a handful of lines of code. */
   .t { color: var(--c-tag); }
   .a { color: var(--c-attr); }
   .s { color: var(--c-str); }
@@ -139,58 +243,72 @@
 <body>
 <main>
   <h1>snap3d</h1>
+
+  <h2>About</h2>
   <p class="lede">
-    Photograph an object from every angle and snap3d fits the images into a single
-    <b>.snap3d</b> bundle. One line of script embeds a live, turnable view of it in any
+    Photograph an object from various angles and <b>snap3d</b> fits the images into a single
+    'snap3d bundle'. A few lines of js script embeds a live, turnable view of the bundle in any
     web page.
   </p>
 
+  <h2>Demo: <select id="subject" class="select-mono" aria-label="subject to render"></select></h2>
+
   <section id="flow">
     <!-- 1. what went in -->
-    <div class="node">
+    <div class="node node-input">
       <img id="inputs" alt="" decoding="async">
-      <span class="node-label" id="capture"></span>
+      <span id="capture"></span>
     </div>
 
     <div class="step">
-      <svg class="arrow" viewBox="0 0 30 42" aria-hidden="true" focusable="false">
-        <path d="M15 3 V32 M6 24.5 L15 34 L24 24.5" fill="none" stroke="currentColor"
-              stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <div>
-        <span class="step-title">create bundle</span>
-        <a class="step-note" href="https://github.com/teo646/snap3d">https://github.com/teo646/snap3d</a>
+      <div class="arrow">
+        <span class="arrow-line"></span>
+        <svg class="arrow-head" viewBox="0 0 20 14" aria-hidden="true" focusable="false">
+          <path d="M0 0 H20 L10 14 Z" fill="currentColor"/>
+        </svg>
       </div>
+      <span class="step-title">
+        1. <a href="https://github.com/teo646/snap3d">snap3d</a> creates a bundle
+      </span>
     </div>
 
-    <!-- 2. what came out - the headline, linking to the four files themselves -->
+    <!-- 2. what came out - a folder, linking to the four files themselves -->
     <div class="node">
-      <a id="bundle-link" href="#"><span id="bundle-name"></span><span class="suffix">.snap3d</span></a>
-      <span class="node-label">config.json &nbsp;·&nbsp; mesh.glb &nbsp;·&nbsp; sh.ktx2 &nbsp;·&nbsp; height.ktx2</span>
+      <a id="bundle-link" href="#">
+        <svg class="folder-icon" viewBox="0 0 20 16" aria-hidden="true" focusable="false">
+          <path d="M1.5 2.5h6l1.6 2H18a.5.5 0 0 1 .5.5v9a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1v-11a.5.5 0 0 1 .5-.5z"
+                fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="bundle-text"><span id="bundle-name"></span><span class="suffix">.snap3d</span></span>
+      </a>
     </div>
 
     <div class="step">
-      <svg class="arrow" viewBox="0 0 30 42" aria-hidden="true" focusable="false">
-        <path d="M15 3 V32 M6 24.5 L15 34 L24 24.5" fill="none" stroke="currentColor"
-              stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
+      <div class="arrow">
+        <span class="arrow-line"></span>
+        <svg class="arrow-head" viewBox="0 0 20 14" aria-hidden="true" focusable="false">
+          <path d="M0 0 H20 L10 14 Z" fill="currentColor"/>
+        </svg>
+      </div>
+      <!-- head row and code sample share this one grid column, so the arrow beside
+           them - a stretched rail, not a fixed glyph - reaches all the way down. -->
       <div>
-        <span class="step-title">embed in any page</span>
-        <span class="step-note">one canvas, one script tag</span>
+        <div class="step-embed-head">
+          <span class="step-title">2. embed in any webpage</span>
+          <select id="embed-type" class="select-mono" aria-label="embed style">
+            <option value="script">script tag</option>
+            <option value="module">module</option>
+          </select>
+        </div>
+        <pre class="step-code"><code id="embed-code"></code></pre>
       </div>
     </div>
-
-    <pre><code><span class="punct">&lt;</span><span class="t">canvas</span> <span class="a">id</span><span class="punct">=</span><span class="s">"viewer"</span> <span class="a">style</span><span class="punct">=</span><span class="s">"width:100%;height:480px"</span><span class="punct">&gt;&lt;/</span><span class="t">canvas</span><span class="punct">&gt;</span>
-<span class="punct">&lt;</span><span class="t">script</span> <span class="a">src</span><span class="punct">=</span><span class="s">"https://teo646.github.io/snap3d-viewer/dist/viewer.js"</span><span class="punct">&gt;&lt;/</span><span class="t">script</span><span class="punct">&gt;</span>
-<span class="punct">&lt;</span><span class="t">script</span><span class="punct">&gt;</span>
-  <span class="k">new</span> Snap3dViewer<span class="punct">(</span>viewer<span class="punct">,</span> <span class="s" id="embed-path">''</span><span class="punct">);</span>
-<span class="punct">&lt;/</span><span class="t">script</span><span class="punct">&gt;</span></code></pre>
 
     <!-- 3. the result, drawn by the very dist/viewer.js the snippet above loads -->
     <div class="node">
       <div id="stage">
         <!-- The default subject is inlined so the browser starts fetching it before this
-             script runs; `?bundle=` and the gallery below just re-point it. -->
+             script runs; the DEMO-of select above and `?bundle=` just re-point it. -->
         <img id="poster" src="./posters/framed_painting.webp" width="1516" height="944"
              decoding="async" alt="A gilded Renaissance picture frame rendered by the viewer.">
         <canvas id="canvas"></canvas>
@@ -200,28 +318,13 @@
         <span id="controls"><b>drag</b> to orbit &nbsp; <b>wheel</b> to zoom &nbsp; <b>R</b> to reset</span>
         <span id="stats"></span>
       </div>
-      <div id="gallery"></div>
     </div>
   </section>
-
-  <h2>Or as a module</h2>
-  <pre><code>import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
-
-const viewer = new Snap3dViewer(canvas, 'my_run.snap3d/config.json');
-await viewer.ready;</code></pre>
-  <p>
-    The <code>&lt;script&gt;</code> build defines <code>Snap3dViewer</code> as the
-    constructor itself, with the rest of the API on it as statics —
-    <code>Snap3dViewer.OrbitControls</code>, <code>Snap3dViewer.loadBundle</code>,
-    <code>Snap3dViewer.VERSION</code>. The loop is demand-driven either way: it draws
-    while something is changing and stops when the image settles, so a still frame
-    costs nothing to hold.
-  </p>
 
   <h2>Requirements</h2>
   <ul>
     <li>WebGL2 — 2D array textures, 16-bit float textures, 32-bit indices.</li>
-    <li><code>DecompressionStream</code>, for the textures' ZLIB supercompression.</li>
+    <li>DecompressionStream, - the textures' ZLIB supercompression.</li>
     <li>Chrome 80+, Firefox 113+, Safari 16.4+. There is no WebGL1 fallback.</li>
   </ul>
 
@@ -234,11 +337,19 @@ await viewer.ready;</code></pre>
 
 <script src="./dist/viewer.js"></script>
 <script>
+  // The viewer's `background` option is [r, g, b] in 0-1, WebGL's own convention -
+  // the CSS --accent-2 (#ffdfb7) divided by 255, so the live render's clear colour
+  // matches what was on screen before it, rather than swapping from one tone to
+  // another once WebGL takes over. Can't read the CSS variable itself from here (no
+  // element to compute it against yet, this runs before anything's on the page), so
+  // the literal is repeated - keep it in step with --accent-2 by hand.
+  const STAGE_BACKGROUND = [0xe8, 0xe8, 0xea].map((c) => c / 255);
+
   // Four runs from the pipeline, each a `<name>.snap3d` folder copied in as it stands.
   // The bundle folder, the poster and the input stack are all named from `name`.
   const BUNDLES = [
     { name: 'framed_painting', label: 'framed painting', images: 80 },
-    { name: 'model_house', label: 'DTU model house', images: 49 },
+    { name: 'model_house', label: 'model house', images: 49 },
     { name: 'nerf_chair', label: 'nerf chair', images: 100 },
     { name: 'nerf_ship', label: 'nerf ship', images: 100 },
   ];
@@ -253,11 +364,32 @@ await viewer.ready;</code></pre>
   const progress = $('progress');
   const status = $('status');
   const poster = $('poster');
+  const subjectSelect = $('subject');
+  const embedTypeSelect = $('embed-type');
 
-  const bundleUrl = (name) => `./bundle/${name}.snap3d/config.json`;
+  // The folder itself - what the library takes and what the bundle link points at.
+  // `loadBundle` appends `/config.json` to any URL that doesn't already end in
+  // `.json`, so the folder is also everything a caller needs to pass in.
+  const bundleDir = (name) => `./bundle/${name}.snap3d`;
+  // The raw config, for the two places on this page that read it themselves rather
+  // than handing the URL to the library.
+  const configUrl = (name) => `${bundleDir(name)}/config.json`;
   const posterUrl = (name) => `./posters/${name}.webp`;
-  const thumbUrl = (name) => `./posters/${name}.thumb.webp`;
   const inputsUrl = (name) => `./inputs/${name}.webp`;
+
+  // The two ways to embed a bundle, coloured the same way the rest of the page's code
+  // is - by hand, so a highlighter library is not the cost of a few lines turning six.
+  const EMBED_SNIPPETS = {
+    script: (name) => `<span class="punct">&lt;</span><span class="t">canvas</span> <span class="a">id</span><span class="punct">=</span><span class="s">"viewer"</span> <span class="a">style</span><span class="punct">=</span><span class="s">"width:100%;height:480px"</span><span class="punct">&gt;&lt;/</span><span class="t">canvas</span><span class="punct">&gt;</span>
+<span class="punct">&lt;</span><span class="t">script</span> <span class="a">src</span><span class="punct">=</span><span class="s">"https://teo646.github.io/snap3d-viewer/dist/viewer.js"</span><span class="punct">&gt;&lt;/</span><span class="t">script</span><span class="punct">&gt;</span>
+<span class="punct">&lt;</span><span class="t">script</span><span class="punct">&gt;</span>
+  <span class="k">new</span> Snap3dViewer<span class="punct">(</span>viewer<span class="punct">,</span> <span class="s">'${name}.snap3d'</span><span class="punct">);</span>
+<span class="punct">&lt;/</span><span class="t">script</span><span class="punct">&gt;</span>`,
+    module: (name) => `<span class="k">import</span> <span class="punct">{</span> Snap3dViewer <span class="punct">}</span> <span class="k">from</span> <span class="s">'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs'</span><span class="punct">;</span>
+
+<span class="k">const</span> viewer <span class="punct">=</span> <span class="k">new</span> Snap3dViewer<span class="punct">(</span>canvas<span class="punct">,</span> <span class="s">'${name}.snap3d'</span><span class="punct">);</span>
+<span class="k">await</span> viewer<span class="punct">.</span>ready<span class="punct">;</span>`,
+  };
 
   let current = BUNDLES.find((b) => b.name === new URLSearchParams(location.search).get('bundle')) ?? BUNDLES[0];
   let viewer = null;
@@ -270,10 +402,14 @@ await viewer.ready;</code></pre>
     console.error(error);
   };
 
+  const renderEmbed = () => {
+    $('embed-code').innerHTML = EMBED_SNIPPETS[embedTypeSelect.value](current.name);
+  };
+
   /** The mesh and atlas figures, from the 1.5 kB config the loader wants anyway. */
   async function describe(name) {
     $('stats').textContent = '';
-    const config = await fetch(bundleUrl(name)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const config = await fetch(configUrl(name)).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     if (!config || name !== current.name) return;
     const [w, h] = config.texture_resolution;
     $('stats').textContent =
@@ -350,7 +486,7 @@ await viewer.ready;</code></pre>
     const controller = (prefetching = new AbortController());
     for (const bundle of BUNDLES) {
       if (bundle.name === current.name) continue;
-      const url = bundleUrl(bundle.name);
+      const url = configUrl(bundle.name);
       try {
         const config = await fetch(url, { signal: controller.signal }).then((r) => r.json());
         const base = url.slice(0, url.lastIndexOf('/'));
@@ -386,11 +522,14 @@ await viewer.ready;</code></pre>
     progress.hidden = false;
     status.textContent = 'loading…';
     try {
+      // Both calls below pass the bundle's folder, not its config.json - the library
+      // resolves that itself, exactly as the embed snippet above demonstrates.
       if (viewer) {
-        viewer.load(bundleUrl(current.name)).then(settle, onReadyFailed);
+        viewer.load(bundleDir(current.name)).then(settle, onReadyFailed);
         return;
       }
-      viewer = new Snap3dViewer(canvas, bundleUrl(current.name), {
+      viewer = new Snap3dViewer(canvas, bundleDir(current.name), {
+        background: STAGE_BACKGROUND,
         onProgress: (loaded, total) => {
           $('bar').firstElementChild.style.width = `${(loaded / total) * 100}%`;
           status.textContent =
@@ -414,9 +553,7 @@ await viewer.ready;</code></pre>
     current = bundle;
     // Anything speculative loses to what the visitor just asked for.
     prefetching?.abort();
-    for (const button of document.querySelectorAll('.thumb')) {
-      button.setAttribute('aria-current', String(button.dataset.bundle === bundle.name));
-    }
+    subjectSelect.value = bundle.name;
 
     $('inputs').src = inputsUrl(bundle.name);
     $('inputs').alt = `Five of the ${bundle.images} images the ${bundle.label} was fit from`;
@@ -424,7 +561,7 @@ await viewer.ready;</code></pre>
 
     $('bundle-name').textContent = bundle.name;
     $('bundle-link').href = `${SOURCE_TREE}/${bundle.name}.snap3d`;
-    $('embed-path').textContent = `'${bundle.name}.snap3d/config.json'`;
+    renderEmbed();
 
     poster.src = posterUrl(bundle.name);
     poster.alt = `${bundle.label}, rendered by the viewer`;
@@ -433,17 +570,11 @@ await viewer.ready;</code></pre>
     render();
   }
 
-  for (const bundle of BUNDLES) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'thumb';
-    button.dataset.bundle = bundle.name;
-    button.innerHTML = '<img alt="" loading="lazy" decoding="async"><span></span>';
-    button.firstChild.src = thumbUrl(bundle.name);
-    button.lastChild.textContent = bundle.label;
-    button.addEventListener('click', () => select(bundle));
-    $('gallery').appendChild(button);
-  }
+  for (const bundle of BUNDLES) subjectSelect.appendChild(new Option(bundle.label, bundle.name));
+  subjectSelect.addEventListener('change', () => {
+    select(BUNDLES.find((b) => b.name === subjectSelect.value));
+  });
+  embedTypeSelect.addEventListener('change', renderEmbed);
 
   select(current);
 </script>
