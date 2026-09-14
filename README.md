@@ -70,10 +70,12 @@ pipeline's export stage wrote in formats a browser already reads:
 
 ```
 my_run.snap3d/
-  config.json   up_vector, sh{degree, coefficients}, texture_resolution,
-                height{range, num_steps}, initial_camera
+  config.json   up_vector, sh{degree, coefficients, storage[, offset, scale]},
+                texture_resolution, height{range, num_steps}, initial_camera
   mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
-  sh.ktx2       RGBA16F array, one layer per SH coefficient; a is padding
+  sh.ktx2       array, one layer per SH coefficient; a is padding. RGBA8 UNORM when
+                sh.storage is "unorm8" (coefficient = sh.offset[k][c] +
+                sh.scale[k][c] * sample), RGBA16F coefficients when "float16"
   height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
 ```
 
@@ -87,14 +89,19 @@ treats it as an ordinary directory URL, so a bundle exported before the conventi
 a plain folder - still loads.
 
 The export stage names the folder after its run (`photo_20260904_152839.snap3d`). The
-four bundles here are renamed to their subject on the way in - `framed_painting`,
-`model_house`, `nerf_chair`, `nerf_ship` - because they are what a visitor to the
+three bundles here are named for their subject - `framed_painting` (run `holy_family`),
+`model_house` (run `scan6`) and `boots` - because they are what a visitor to the
 landing page reads, and a timestamp says nothing about what is on screen. Renaming
 costs the run id, so the mapping back to it lives in `tools/make_input_stacks.py`'s
 `IMAGE_SETS`, which needs both anyway.
 
-The `format` string inside `config.json` is unchanged (`sh_texture_bundle/2`): it names
-the payload format, and the folder convention did not change any payload.
+The `format` string inside `config.json` names the payload format. `sh_texture_bundle/3`
+added `sh.storage`: the pipeline now writes `"unorm8"` by default - each (coefficient,
+channel) quantized to 8 bits over its own min..max, with the offset and scale in
+`config.json` - and `"float16"` remains available. `/2` bundles have no `storage` key and
+are float16; this viewer loads both. The demo bundles are `/3`: `model_house` and `boots`
+store unorm8, `framed_painting` float16 - a painting's faces blend colours too finely for
+8-bit storage, so that capture keeps the larger file.
 
 Copy a `.snap3d` folder into `demo/snap3d_bundles/` as it stands and serve it:
 
@@ -170,9 +177,11 @@ to get wrong and cost nothing to get right:
 * Tangents are **not normalized**. Their length is world units per UV unit, which is
   what `xy_per_height` converts a world step into a texel step with.
 
-**Textures are float16 and stay that way.** `RGBA16F` and `RG16F` are filterable in core
-WebGL2, so the file's bytes go to `texSubImage` untouched - no widening, no
-`OES_texture_float_linear`.
+**Textures go to the GPU in the file's own format.** `RGBA16F`, `RG16F` and `RGBA8` are
+all filterable in core WebGL2, so the file's bytes go to `texSubImage` untouched - no
+widening, no `OES_texture_float_linear`. For a `unorm8` SH atlas the shader applies
+`offset + scale * sample` after the filtered lookup; the map is affine, so that equals
+filtering the dequantized coefficients, at half the memory of `RGBA16F`.
 
 **The supercompression is ZLIB, and that is a delivery decision.** KTX2 allows
 Zstandard, which compresses ~10% better, but no browser exposes a zstd decoder:

@@ -12,7 +12,7 @@
 // in the bundle's config.json and warns on a mismatch, which is what a stale port looks
 // like - subtly wrong colours rather than an error. The export format does not write
 // that field today, so the check sits dormant rather than firing wrongly.
-export const PIPELINE_GLSL_SHA256 = '4cfaf24af95e072ada3dea33b4c154c7f3d9e45d184070bee047f5adf0892314';
+export const PIPELINE_GLSL_SHA256 = '2059de21010f65119cd3c06e46bebfcecc7482a518ab6dd445468dcc640567d9';
 
 export const VERTEX_SHADER = `#version 300 es
 
@@ -110,6 +110,13 @@ vec2 resolve_parallax_uv(vec2 uv0, vec3 flat_pos0, vec3 n0, vec3 t_raw, vec3 b_r
 
 const EVAL_SH_GLSL = `
 uniform sampler2DArray u_coeffs;
+#ifdef SH_UNORM8
+// Bundle sh_storage "unorm8": the array holds RGBA8 UNORM samples, and each coefficient
+// is offset + scale * sample. Affine, so applying it after the GPU's bilinear filter is
+// the same as filtering the dequantized values.
+uniform vec3 u_sh_offset[K_COEFFS];
+uniform vec3 u_sh_scale[K_COEFFS];
+#endif
 
 vec3 eval_sh(vec2 uv, vec3 view_local){
     vec3 v = normalize(view_local);
@@ -149,7 +156,11 @@ vec3 eval_sh(vec2 uv, vec3 view_local){
     #endif
     vec3 color = vec3(0.0);
     for (int k = 0; k < K_COEFFS; ++k){
-        color += Y[k] * texture(u_coeffs, vec3(uv, float(k))).rgb;
+        vec3 c = texture(u_coeffs, vec3(uv, float(k))).rgb;
+        #ifdef SH_UNORM8
+        c = u_sh_offset[k] + u_sh_scale[k] * c;
+        #endif
+        color += Y[k] * c;
     }
     return clamp(color, 0.0, 1.0);
 }
@@ -184,11 +195,12 @@ void main(){
 `;
 
 /**
- * Fragment source for one bundle. The three #defines are the same knobs
- * view_bundle.py prepends; PORT: the two precision lines are ES-only, and highp on the
- * height sampler is not cosmetic - mediump would quantize the POM march.
+ * Fragment source for one bundle. The #defines are the same knobs view_bundle.py
+ * prepends - SH_UNORM8 only for a bundle whose `sh.storage` is "unorm8"; PORT: the two
+ * precision lines are ES-only, and highp on the height sampler is not cosmetic - mediump
+ * would quantize the POM march.
  */
-export function fragmentShader({ degree, kCoeffs, numSteps }) {
+export function fragmentShader({ degree, kCoeffs, numSteps, shUnorm8 = false }) {
   return (
     `#version 300 es\n` +
     `precision highp float;\n` +
@@ -197,6 +209,7 @@ export function fragmentShader({ degree, kCoeffs, numSteps }) {
     `#define DEGREE ${degree}\n` +
     `#define K_COEFFS ${kCoeffs}\n` +
     `#define NUM_STEPS ${numSteps}\n` +
+    (shUnorm8 ? `#define SH_UNORM8\n` : '') +
     RESOLVE_GLSL +
     EVAL_SH_GLSL +
     FRAGMENT_BODY

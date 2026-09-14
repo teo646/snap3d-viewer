@@ -1,7 +1,7 @@
 // KTX2 reader, the JS twin of pipeline/core/ktx2.py's `read_ktx2`.
 //
 // Only what the bundle writes: a single mip level, no cubemaps, no 3D textures,
-// float16 samples, optional ZLIB supercompression. The payload is deliberately *not*
+// float16 or 8-bit UNORM samples, optional ZLIB supercompression. The payload is deliberately *not*
 // block-compressed - SH coefficients and a height field are numeric data, not colours,
 // and an 8-bit lossy codec on them shows up as banding in the parallax march.
 //
@@ -10,8 +10,9 @@
 // calls "deflate", which every browser with WebGL2 has built in. Zstandard would cost
 // a bundled JS decoder and a slower first paint for ~10% less download.
 //
-// float16 words are handed back raw (Uint16Array), not widened: gl.HALF_FLOAT takes
-// exactly these bits, so decoding them would only be work to undo.
+// Samples are handed back raw, not widened: float16 words as a Uint16Array, which
+// gl.HALF_FLOAT takes bit for bit, and UNORM8 bytes as a Uint8Array for
+// gl.UNSIGNED_BYTE. Decoding either would only be work to undo.
 
 const IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 
@@ -22,6 +23,14 @@ const VK_SFLOAT16 = {
   76: 1,  // R16_SFLOAT
   83: 2,  // R16G16_SFLOAT
   97: 4,  // R16G16B16A16_SFLOAT
+};
+
+// 8-bit UNORM, what a bundle with `sh.storage: "unorm8"` writes for sh.ktx2. What the
+// bytes mean (a per-coefficient offset and scale) lives in config.json, not here.
+const VK_UNORM8 = {
+  9: 1,   // R8_UNORM
+  16: 2,  // R8G8_UNORM
+  37: 4,  // R8G8B8A8_UNORM
 };
 
 const SUPERCOMPRESSION = { 0: null, 1: 'BasisLZ', 2: 'Zstandard', 3: 'ZLIB' };
@@ -44,10 +53,10 @@ async function inflate(bytes, expectedLength) {
 
 /**
  * @param {ArrayBuffer} buffer  a .ktx2 file
- * @returns {Promise<{data: Uint16Array, width: number, height: number,
- *                    layers: number, channels: number, isArray: boolean}>}
- *   `data` is raw float16 words, row 0 first (KTXorientation "rd"), laid out
- *   [layer][row][column][channel].
+ * @returns {Promise<{data: Uint16Array|Uint8Array, type: 'float16'|'unorm8', width: number,
+ *                    height: number, layers: number, channels: number, isArray: boolean}>}
+ *   `data` is raw samples - float16 words or UNORM8 bytes - row 0 first
+ *   (KTXorientation "rd"), laid out [layer][row][column][channel].
  */
 export async function readKtx2(buffer) {
   const bytes = new Uint8Array(buffer);
@@ -68,8 +77,9 @@ export async function readKtx2(buffer) {
   const levelCount = u32(40);
   const scheme = u32(44);
 
-  const channels = VK_SFLOAT16[vkFormat];
-  if (!channels) throw new Error(`vkFormat ${vkFormat} is not a float16 format this reader handles`);
+  const type = VK_SFLOAT16[vkFormat] ? 'float16' : VK_UNORM8[vkFormat] ? 'unorm8' : null;
+  if (!type) throw new Error(`vkFormat ${vkFormat} is not a float16 or UNORM8 format this reader handles`);
+  const channels = type === 'float16' ? VK_SFLOAT16[vkFormat] : VK_UNORM8[vkFormat];
   if (depth || faceCount !== 1 || levelCount > 1) {
     throw new Error('only single-level 2D (array) textures are supported');
   }
@@ -87,11 +97,16 @@ export async function readKtx2(buffer) {
     throw new Error(`supercompression scheme ${scheme} (${SUPERCOMPRESSION[scheme] ?? 'unknown'}) is not supported`);
   }
 
-  // Uint16Array over the buffer needs a 2-byte-aligned offset; an inflated level is its
-  // own buffer starting at 0, and an uncompressed one starts on a 4-byte boundary.
-  const aligned = level.byteOffset % 2 === 0 ? level : new Uint8Array(level);
-  const data = new Uint16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2);
+  let data;
+  if (type === 'float16') {
+    // Uint16Array over the buffer needs a 2-byte-aligned offset; an inflated level is its
+    // own buffer starting at 0, and an uncompressed one starts on a 4-byte boundary.
+    const aligned = level.byteOffset % 2 === 0 ? level : new Uint8Array(level);
+    data = new Uint16Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 2);
+  } else {
+    data = level;
+  }
 
   // layerCount 0 is KTX2 for "not an array texture".
-  return { data, width, height, layers: layerCount || 1, channels, isArray: layerCount > 0 };
+  return { data, type, width, height, layers: layerCount || 1, channels, isArray: layerCount > 0 };
 }

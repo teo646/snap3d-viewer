@@ -30,10 +30,9 @@ DEFAULT_RUNS = ROOT.parent / "snap3d" / "data" / "runs"
 # written side by side, so keep it that way: it is what tells you which run to re-export
 # a bundle from.
 IMAGE_SETS = {
-    "framed_painting": "photo_20260904_152839/01_ingest/images/train",
-    "model_house": "photo_20260904_000809/01_ingest/images/photos",
-    "nerf_chair": "nerf_chair/01_ingest/images",
-    "nerf_ship": "nerf_ship/01_ingest/images",
+    "framed_painting": "holy_family/01_ingest/images/train",
+    "model_house": "scan6/01_ingest/images",
+    "boots": "boots/01_ingest/images",
 }
 
 CARD = 300                              # long side of one card, at 2x for retina

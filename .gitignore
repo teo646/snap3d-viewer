@@ -224,8 +224,7 @@ demo/snap3d_bundles/*/
 demo/snap3d_bundles/index.json
 !demo/snap3d_bundles/framed_painting.snap3d/
 !demo/snap3d_bundles/model_house.snap3d/
-!demo/snap3d_bundles/nerf_chair.snap3d/
-!demo/snap3d_bundles/nerf_ship.snap3d/
+!demo/snap3d_bundles/boots.snap3d/
 
 # The build output. CI rebuilds it on every push to main and publishes it to
 # Pages, so a checked-in dist/ would only ever be a second, staler truth.

@@ -32,6 +32,7 @@ function buildProgram(gl, config) {
     degree: config.sh.degree,
     kCoeffs: config.sh.coefficients,
     numSteps: config.height.num_steps,
+    shUnorm8: config.sh.storage === 'unorm8',
   });
   const program = gl.createProgram();
   gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX_SHADER));
@@ -85,13 +86,24 @@ export function createRenderer(gl, bundle) {
   gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RG, gl.HALF_FLOAT, textures.height.data);
   texParams(gl, gl.TEXTURE_2D);
 
-  // Unit 2: one array layer per SH coefficient, RGBA16F straight out of the KTX2 -
-  // alpha is padding, because WebGL has no 3-channel float format. eval_sh reads .rgb.
+  // Unit 2: one array layer per SH coefficient, straight out of the KTX2 - alpha is
+  // padding, because WebGL has no 3-channel float format. eval_sh reads .rgb.
+  // unorm8 bundles upload the bytes as RGBA8 (filterable in core WebGL2) and the shader
+  // applies offset + scale after the lookup; that is affine, so filtering first changes
+  // nothing, and the atlas takes half the memory of RGBA16F.
+  const unorm8 = config.sh.storage === 'unorm8';
   const coeffTex = gl.createTexture();
   gl.activeTexture(gl.TEXTURE2);
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, coeffTex);
-  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA16F, w, h, kCoeffs);
-  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, kCoeffs, gl.RGBA, gl.HALF_FLOAT, textures.sh.data);
+  if (unorm8) {
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA8, w, h, kCoeffs);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, kCoeffs, gl.RGBA, gl.UNSIGNED_BYTE, textures.sh.data);
+    gl.uniform3fv(uniform('u_sh_offset'), new Float32Array(config.sh.offset.flat()));
+    gl.uniform3fv(uniform('u_sh_scale'), new Float32Array(config.sh.scale.flat()));
+  } else {
+    gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA16F, w, h, kCoeffs);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, w, h, kCoeffs, gl.RGBA, gl.HALF_FLOAT, textures.sh.data);
+  }
   texParams(gl, gl.TEXTURE_2D_ARRAY);
 
   gl.uniform1i(uniform('u_height_tex'), 0);

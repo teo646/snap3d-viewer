@@ -55,7 +55,7 @@ function fillHud(viewer, name, names) {
   $('s-mesh').textContent = `${stats.vertices.toLocaleString()} v / ${stats.faces.toLocaleString()} f`;
   $('s-sh').textContent = `degree ${config.sh.degree} · ${config.sh.coefficients} coeffs`;
   const [w, h] = config.texture_resolution;
-  $('s-atlas').textContent = `${w}×${h} f16`;
+  $('s-atlas').textContent = `${w}×${h} ${config.sh.storage === 'unorm8' ? 'u8' : 'f16'}`;
   $('s-download').textContent = `${(stats.bytes / 1e6).toFixed(1)} MB`;
   $('s-vram').textContent = `${(viewer.textureBytes / 1e6).toFixed(0)} MB`;
   $('s-coverage').textContent = `${(stats.coverage * 100).toFixed(1)}%`;

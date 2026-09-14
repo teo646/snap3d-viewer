@@ -2,7 +2,9 @@
 //
 //   config.json   up_vector, sh{...}, texture_resolution, height{...}, initial_camera
 //   mesh.glb      POSITION, TEXCOORD_0, indices - and nothing else
-//   sh.ktx2       RGBA16F array, one layer per SH coefficient (a is padding)
+//   sh.ktx2       array, one layer per SH coefficient (a is padding): RGBA8 UNORM with
+//                 coefficient = sh.offset[k][c] + sh.scale[k][c] * sample when
+//                 sh.storage is "unorm8" (format /3), RGBA16F coefficients otherwise
 //   height.ktx2   RG16F; r = displacement, g = 1 inside the atlas coverage
 //
 // There is no conversion step. The pipeline writes glTF and KTX2 in those formats' own
@@ -21,8 +23,9 @@ import { readGlb } from './glb.js';
 import { readKtx2 } from './ktx2.js';
 import { vertexFrameAttributes } from './frame.js';
 
-// The `format` string config.json carries. It names the payload format, which the
-// `.snap3d` folder convention did not change, so it is still the pipeline's original.
+// The `format` string config.json carries: `sh_texture_bundle/<version>`. /2 is float16
+// coefficients; /3 adds `sh.storage` ("float16" or "unorm8") and, for unorm8, the
+// per-coefficient offset/scale. Both load - a /2 config has no storage key and means float16.
 const BUNDLE_FORMAT = 'sh_texture_bundle/';
 
 /** Stream one URL, reporting bytes as they arrive. */
@@ -55,7 +58,7 @@ async function streamBody(response, onChunk) {
  */
 function flipRows(data, width, height, layers, channels) {
   const rowWords = width * channels;
-  const scratch = new Uint16Array(rowWords);
+  const scratch = new data.constructor(rowWords); // Uint16Array (float16) or Uint8Array (unorm8)
   for (let layer = 0; layer < layers; layer++) {
     const base = layer * height * rowWords;
     for (let y = 0; y < height >> 1; y++) {
@@ -127,6 +130,22 @@ export async function loadBundle(url, onProgress = () => {}) {
   if (sh.layers !== config.sh.coefficients) {
     throw new Error(`sh.ktx2 has ${sh.layers} layers, config says ${config.sh.coefficients} coefficients`);
   }
+  const storage = config.sh.storage ?? 'float16';
+  if (storage !== 'float16' && storage !== 'unorm8') {
+    throw new Error(`config sh.storage "${storage}" is not one this viewer reads`);
+  }
+  if (sh.type !== storage) {
+    throw new Error(`sh.ktx2 holds ${sh.type} samples, config says sh.storage "${storage}"`);
+  }
+  if (storage === 'unorm8') {
+    for (const key of ['offset', 'scale']) {
+      const rows = config.sh[key];
+      if (!Array.isArray(rows) || rows.length !== config.sh.coefficients || rows.some((r) => r.length !== 3)) {
+        throw new Error(`config sh.${key} must be ${config.sh.coefficients} x 3 for unorm8 storage`);
+      }
+    }
+  }
+  if (height.type !== 'float16') throw new Error(`height.ktx2 must be float16, got ${height.type}`);
 
   flipRows(sh.data, sh.width, sh.height, sh.layers, sh.channels);
   flipRows(height.data, height.width, height.height, 1, height.channels);

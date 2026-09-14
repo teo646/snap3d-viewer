@@ -91,11 +91,12 @@ export class Snap3dViewer {
   }
 
   /** Bytes of GPU atlas this bundle occupies - the number that decides mobile fit.
-   *  RGBA16F per coefficient, plus one RG16F relief texture. */
+   *  RGBA16F (or RGBA8, for unorm8 storage) per coefficient, plus one RG16F relief texture. */
   get textureBytes() {
     if (!this.config) return 0;
     const [w, h] = this.config.texture_resolution;
-    return w * h * 2 * (4 * this.config.sh.coefficients + 2);
+    const shBytesPerSample = this.config.sh.storage === 'unorm8' ? 1 : 2;
+    return w * h * (shBytesPerSample * 4 * this.config.sh.coefficients + 2 * 2);
   }
 
   /** Draw when the loop is idle. Cheap and idempotent within one frame. */
