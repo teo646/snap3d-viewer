@@ -2,8 +2,8 @@
 """Build the fanned photo stack the landing page shows beside each render.
 
 The point of the picture is provenance: *this* set of images produced *that* surface.
-So the five cards are chosen for how much of the subject they show, not by index - a
-NeRF set's frames include steep angles where the object is a speck, and a pile of five
+So the eight cards are chosen for how much of the subject they show, not by index - a
+NeRF set's frames include steep angles where the object is a speck, and a pile of
 near-empty cards says nothing about what was captured - and they are laid back in
 capture order so the pile still reads as a walk around the subject.
 
@@ -36,7 +36,7 @@ IMAGE_SETS = {
 }
 
 CARD = 300                              # long side of one card, at 2x for retina
-ANGLES = [-7.0, -3.5, 0.0, 3.5, 7.0]
+ANGLES = [-12.25, -8.75, -5.25, -1.75, 1.75, 5.25, 8.75, 12.25]  # 8 cards, 3.5° apart
 STEP = 190                              # ~35% overlap: enough to read as a pile, little
 BORDER = 4                              # enough to hide the card behind it
 BORDER_COLOR = (232, 232, 234)          # #e8e8ea, the page's --accent-2
