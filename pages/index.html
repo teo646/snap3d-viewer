@@ -55,13 +55,12 @@
      gets none, so it can go flush to the page edge with nothing to mark where it
      starts. */
   .page { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
+  /* A grid track defaults to its content's min-content width, and the embed <pre> below
+     doesn't wrap - without this, that unbreakable code line would refuse to shrink the
+     track past its own width, so on a narrow viewport the whole row (viewer included)
+     overflows past the screen instead of the code block scrolling on its own. */
+  .col-text, .col-viewer { min-width: 0; }
   .col-text { padding: 40px 60px; }
-  @media (max-width: 900px) {
-    .page { grid-template-columns: 1fr; gap: 0; }
-    .col-text { padding: 32px 20px 64px; }
-    .col-viewer { order: -1; margin-bottom: 32px; }
-    .viewer-sticky { position: static; }
-  }
 
   h1 {
     display: flex; align-items: center; gap: 12px;
@@ -102,6 +101,15 @@
 
   /* --- the viewer itself - mechanics unchanged from before, restyled to match --- */
   .viewer-sticky { position: sticky; top: 32px; }
+  /* This has to come after the rule above: same specificity, so whichever is later in
+     the stylesheet wins regardless of the media condition, and a mobile override placed
+     earlier would silently lose to it. */
+  @media (max-width: 900px) {
+    .page { grid-template-columns: 1fr; gap: 0; }
+    .col-text { padding: 32px 20px 64px; }
+    .col-viewer { order: -1; margin-bottom: 32px; }
+    .viewer-sticky { position: static; }
+  }
   /* White, borderless, unrounded - the same white the page itself sits on, so there
      is no box for the eye to find. modelviewer.dev's own model has no frame either;
      it just floats on the page. */
