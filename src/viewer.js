@@ -29,6 +29,7 @@ export const VIEWER_DEFAULTS = {
   antialias: true,
   fov: null,           // degrees; null takes the bundle's initial_camera.fov_deg
   contextAttributes: null,
+  poster: null,         // image URL to show over the canvas until the first frame draws
   onProgress: null,    // (loadedBytes, totalBytes)
   onReady: null,       // (viewer)
   onError: null,       // (error)
@@ -79,6 +80,11 @@ export class Snap3dViewer {
     this._bindContextEvents();
     this._observeSize();
 
+    this._posterHost = null;
+    this._posterEl = null;
+    this._posterPendingHide = false;
+    if (this.options.poster) this._showPoster(this.options.poster);
+
     /** Resolves with this viewer once the bundle is on the GPU. */
     this.ready = this._load().catch((error) => {
       this.options.onError?.(error);
@@ -127,10 +133,13 @@ export class Snap3dViewer {
    * and the camera re-derived from the new bundle - a different `up_vector` and a
    * different opening pose are exactly what a second bundle brings.
    *
+   * @param {object} [options]  currently just `poster`, shown again for the new bundle
    * @returns {Promise<Snap3dViewer>} the same promise shape as `ready`
    */
-  load(url) {
+  load(url, options = {}) {
     this.url = String(url).replace(/\/+$/, '');
+    if ('poster' in options) this.options.poster = options.poster;
+    if (this.options.poster) this._showPoster(this.options.poster);
     this._renderer?.dispose();
     this._renderer = null;
     this.controls?.dispose();
@@ -231,6 +240,7 @@ export class Snap3dViewer {
     this.stop();
     this.controls?.dispose();
     this._resizeObserver?.disconnect();
+    this._posterEl?.remove();
     for (const off of this._unbind ?? []) off();
     this._unbind = [];
     this._renderer?.dispose();
@@ -320,6 +330,64 @@ export class Snap3dViewer {
       camera.radius * 20,
     );
     this._renderer.draw(multiply(projection, camera.viewMatrix()), camera.position);
+
+    // Wait for an actual frame rather than hiding the poster the instant loading
+    // finishes - hiding it in `_load()` would uncover one blank cleared frame before
+    // the first real draw ever lands.
+    if (this._posterPendingHide) {
+      this._posterPendingHide = false;
+      this._hidePoster();
+    }
+  }
+
+  /** Show `url` over the canvas, creating the overlay the first time it's needed. */
+  _showPoster(url) {
+    if (!this._posterEl) {
+      const host = this._ensurePosterHost();
+      const img = document.createElement('img');
+      img.alt = '';
+      img.style.cssText =
+        'position:absolute; inset:0; width:100%; height:100%; object-fit:cover; ' +
+        'pointer-events:none; transition:opacity 0.4s ease;';
+      host.appendChild(img);
+      this._posterEl = img;
+    }
+    this._posterEl.src = url;
+    this._posterEl.style.opacity = '1';
+    this._posterEl.style.display = '';
+    this._posterPendingHide = true;
+  }
+
+  _hidePoster() {
+    const img = this._posterEl;
+    if (!img) return;
+    img.style.opacity = '0';
+  }
+
+  /**
+   * The poster is a sibling `<img>`, not something drawn into the canvas - the canvas
+   * already has a WebGL context, and a 2D context can't share it. Absolute positioning
+   * needs a positioned ancestor: reuse the canvas's parent if it already is one (a page
+   * that built its own stage div, as this library's own demo does), otherwise wrap the
+   * canvas in a plain relative div so a bare `<canvas>` dropped into the page still
+   * gets a poster that lines up with it.
+   */
+  _ensurePosterHost() {
+    if (this._posterHost) return this._posterHost;
+    const parent = this.canvas.parentNode;
+    const positioned = ['relative', 'absolute', 'fixed', 'sticky'].includes(
+      parent && getComputedStyle(parent).position,
+    );
+    if (positioned) {
+      this._posterHost = parent;
+    } else {
+      const host = document.createElement('div');
+      host.style.cssText = 'position:relative;';
+      parent.insertBefore(host, this.canvas);
+      host.appendChild(this.canvas);
+      this._posterHost = host;
+    }
+    return this._posterHost;
   }
 
   _reportFps(now, dt) {

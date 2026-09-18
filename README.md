@@ -55,8 +55,10 @@ and `url` points at a snap3d bundle.
 | `dispose()` | releases the GL objects, the listeners and the loop |
 
 Options: `background`, `controls` (`false`, or an `OrbitControls` config), `render`,
-`autoStart`, `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, and the callbacks
-`onProgress` `onReady` `onError` `onWarning` `onFrame`.
+`autoStart`, `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `poster` (an image
+URL shown over the canvas until the first frame draws — also takes a second, updated
+URL passed to `load(url, { poster })`), and the callbacks `onProgress` `onReady`
+`onError` `onWarning` `onFrame`.
 
 The `<script>` build defines `Snap3dViewer` as the constructor itself, with the rest of
 the module surface on it as statics — `Snap3dViewer.OrbitControls`,

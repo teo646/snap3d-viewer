@@ -117,11 +117,8 @@
     position: relative; aspect-ratio: 1516 / 944; width: 100%;
     background: #ffffff; overflow: hidden;
   }
-  #stage > img, #stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-  #poster { object-fit: cover; transition: opacity 0.5s ease; }
-  #canvas { opacity: 0; transition: opacity 0.5s ease; touch-action: none; }
-  #stage.live #poster { opacity: 0; }
-  #stage.live #canvas { opacity: 1; cursor: grab; }
+  #stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  #stage.live #canvas { cursor: grab; }
   #stage.live #canvas.shs-dragging { cursor: grabbing; }
   #canvas:focus, #canvas:focus-visible { outline: none; }
 
@@ -186,10 +183,6 @@
   <div class="col-viewer">
     <div class="viewer-sticky">
       <div id="stage">
-        <!-- The default subject is inlined so the browser starts fetching it before this
-             script runs; the Demo select above and `?bundle=` just re-point it. -->
-        <img id="poster" src="./posters/boots.webp" width="1516" height="944"
-             decoding="async" alt="A pair of leather boots, rendered by the viewer.">
         <canvas id="canvas"></canvas>
         <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
       </div>
@@ -216,7 +209,6 @@
   const stage = $('stage');
   const progress = $('progress');
   const status = $('status');
-  const poster = $('poster');
   const subjectSelect = $('subject');
 
   // The folder itself - what the library takes and what the bundle link points at.
@@ -359,11 +351,12 @@
       // Both calls below pass the bundle's folder, not its config.json - the library
       // resolves that itself, exactly as the embed snippet above demonstrates.
       if (viewer) {
-        viewer.load(bundleDir(current.name)).then(settle, onReadyFailed);
+        viewer.load(bundleDir(current.name), { poster: posterUrl(current.name) }).then(settle, onReadyFailed);
         return;
       }
       viewer = new Snap3dViewer(canvas, bundleDir(current.name), {
         background: STAGE_BACKGROUND,
+        poster: posterUrl(current.name),
         onProgress: (loaded, total) => {
           $('bar').firstElementChild.style.width = `${(loaded / total) * 100}%`;
           status.textContent =
@@ -394,8 +387,6 @@
     $('capture').textContent = bundle.images;
     renderEmbed();
 
-    poster.src = posterUrl(bundle.name);
-    poster.alt = `${bundle.label}, rendered by the viewer`;
     stage.classList.remove('live');
     render();
   }
