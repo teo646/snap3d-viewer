@@ -1,6 +1,6 @@
 {
-  "tagline": "작품의 붓터치와 질감을 그대로 보여줍니다",
-  "about": "촬영한 회화와 조각 작품을 snap3d 소프트웨어가 <a class=\"link-underline\" href=\"https://github.com/teo646/snap3d-viewer/tree/main/demo/snap3d_bundles\">.snap3d</a> bundle을 만듭니다. 전시 전에 작품의 입체감과 질감을 웹에서 그대로 확인할 수 있습니다.",
+  "tagline": "사진이 아닌 작품을 보여줍니다.",
+  "about": "사진 촬영된 작품을 snap3d 소프트웨어가 <a class=\"link-underline\" href=\"https://github.com/teo646/snap3d-viewer/tree/main/demo/snap3d_bundles\">.snap3d</a> bundle을 만듭니다. 작품의 입체감과 질감을 웹에서 그대로 확인할 수 있습니다.",
   "bundles": [
     { "name": "framed_painting", "label": "framed painting", "images": 80 },
     { "name": "statue", "label": "statue", "images": 150 },
