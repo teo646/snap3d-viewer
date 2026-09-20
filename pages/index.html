@@ -137,6 +137,25 @@
   #progress.failed span { color: #d32f2f; }
   #progress.failed #bar { display: none; }
 
+  /* A one-time nudge that this is draggable, not a static picture - shown after the
+     first bundle settles and dismissed for good on the first drag (or on its own after
+     a few seconds), never repeated on a later subject switch. Sits above the canvas but
+     pointer-events:none so it never steals the drag it's advertising. */
+  #drag-hint {
+    position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 7px;
+    padding: 7px 14px; border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
+    color: var(--text-2); font: 500 13px/1 var(--font-mono); white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity 0.5s ease;
+  }
+  #drag-hint.visible { opacity: 1; }
+  #drag-hint svg { width: 18px; height: 18px; flex-shrink: 0; animation: drag-hint-nudge 1.4s ease-in-out infinite; }
+  @keyframes drag-hint-nudge {
+    0%, 100% { transform: translateX(-3px); }
+    50% { transform: translateX(3px); }
+  }
+
   /* Syntax colouring, written into the markup by hand - a highlighter library would
      be the page's only dependency, for a handful of lines of code. */
   .t { color: var(--c-tag); }
@@ -181,6 +200,13 @@
       <div id="stage">
         <canvas id="canvas"></canvas>
         <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
+        <div id="drag-hint" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 8l-4 4 4 4"/>
+            <path d="M15 8l4 4-4 4"/>
+          </svg>
+          드래그해서 회전
+        </div>
       </div>
     </div>
   </div>
