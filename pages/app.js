@@ -34,16 +34,14 @@
   $('tagline').textContent = PAGE.tagline;
   $('about').innerHTML = PAGE.about;
 
-  // Shown once, after the first bundle ever settles on this page - not on every
-  // subject switch, and not again once the visitor has found the drag themselves.
+  // Shown once the first bundle on this page settles, and left up - not re-shown on a
+  // later subject switch, since it's already on screen by then.
   let dragHintTaught = false;
   function teachDragHint() {
     if (dragHintTaught) return;
     dragHintTaught = true;
     setTimeout(() => dragHint.classList.add('visible'), 500);
-    setTimeout(() => dragHint.classList.remove('visible'), 4500);
   }
-  canvas.addEventListener('pointerdown', () => dragHint.classList.remove('visible'), { once: true });
 
   // The folder itself - what the library takes and what the bundle link points at.
   // `loadBundle` appends `/config.json` to any URL that doesn't already end in
