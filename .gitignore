@@ -1,3 +1,6 @@
+# Personal-use exports (e.g. rotation GIFs) - not part of the project.
+/exports/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
