@@ -33,6 +33,15 @@ IMAGE_SETS = {
     "framed_painting": "holy_family/01_ingest/images/train",
     "model_house": "scan6/01_ingest/images",
     "boots": "boots/01_ingest/images",
+    "clothes01": "clothes01/01_ingest/images",
+    "clothes04": "clothes04/01_ingest/images",
+    "clothes05": "clothes05/01_ingest/images",
+    "tile01": "tile01/01_ingest/images",
+    "tile02": "tile02/01_ingest/images",
+    "tile03": "tile03/01_ingest/images",
+    "custom_impasto": "custom_impasto/01_ingest/images",
+    "model_in_cap": "my_head/01_ingest/images",
+    "statue": "stone_head/01_ingest/images",
 }
 
 CARD = 300                              # long side of one card, at 2x for retina
