@@ -97,11 +97,17 @@
   .select-plain:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* The subject picker now sits right above the stage rather than buried in a Demo
-     section of text - bigger and full-width so it reads as the viewer's own control,
-     not another line of copy. */
-  .select-subject { display: block; width: 100%; margin-bottom: 14px; font-size: 16px; padding: 11px 14px; }
+     section of text - bigger so it reads as the viewer's own control, not another
+     line of copy, but sized to its own label rather than stretched edge to edge. */
+  .subject-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .subject-label { font: 500 18px/1 var(--font-mono); color: var(--text-2); }
+  /* 1.8x the original 16px/11px-14px control. */
+  .select-subject { display: inline-block; width: auto; margin: 0; font-size: 28.8px; padding: 19.8px 25.2px; }
 
-  .viewer-caption { margin-top: 16px; }
+  /* Centred as a block - width:fit-content sizes it to the stacked-image strip, the
+     wider of the two children, and centres that; the caption text then stays flush
+     with that block's own left edge rather than being centred as text itself. */
+  .viewer-caption { margin-top: 16px; width: fit-content; margin-left: auto; margin-right: auto; }
   #inputs { display: block; height: 84px; width: auto; max-width: 100%; border-radius: 6px; margin: 0 0 8px; }
   .provenance { color: var(--text-2); }
 
@@ -196,7 +202,10 @@
 
   <div class="col-viewer">
     <div class="viewer-sticky">
-      <select id="subject" class="select-plain select-subject" aria-label="subject to render"></select>
+      <div class="subject-picker">
+        <span class="subject-label">Demo object:</span>
+        <select id="subject" class="select-plain select-subject" aria-label="subject to render"></select>
+      </div>
       <div id="stage">
         <canvas id="canvas"></canvas>
         <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
