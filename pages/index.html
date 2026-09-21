@@ -96,7 +96,13 @@
   }
   .select-plain:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-  #inputs { display: block; height: 84px; width: auto; max-width: 100%; border-radius: 6px; margin: 4px 0 8px; }
+  /* The subject picker now sits right above the stage rather than buried in a Demo
+     section of text - bigger and full-width so it reads as the viewer's own control,
+     not another line of copy. */
+  .select-subject { display: block; width: 100%; margin-bottom: 14px; font-size: 16px; padding: 11px 14px; }
+
+  .viewer-caption { margin-top: 16px; }
+  #inputs { display: block; height: 84px; width: auto; max-width: 100%; border-radius: 6px; margin: 0 0 8px; }
   .provenance { color: var(--text-2); }
 
   /* --- the viewer itself - mechanics unchanged from before, restyled to match --- */
@@ -181,13 +187,6 @@
     <p id="about"></p>
     <pre><code id="embed-code"></code></pre>
 
-    <h3 class="bordered">Demo</h3>
-    <p>
-      <select id="subject" class="select-plain" aria-label="subject to render"></select>
-    </p>
-    <img id="inputs" alt="" decoding="async">
-    <p class="provenance"><span id="capture"></span>장의 이미지로 bundle 생성</p>
-
     <h3 class="bordered">Contact for snap3d software</h3>
     <p>
       한양대학교 컴퓨터소프트웨어학부 최태영<br>
@@ -197,6 +196,7 @@
 
   <div class="col-viewer">
     <div class="viewer-sticky">
+      <select id="subject" class="select-plain select-subject" aria-label="subject to render"></select>
       <div id="stage">
         <canvas id="canvas"></canvas>
         <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
@@ -207,6 +207,10 @@
           </svg>
           드래그해서 회전
         </div>
+      </div>
+      <div class="viewer-caption">
+        <img id="inputs" alt="" decoding="async">
+        <p class="provenance"><span id="capture"></span>장의 이미지로 bundle 생성</p>
       </div>
     </div>
   </div>
