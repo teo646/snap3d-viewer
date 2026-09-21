@@ -100,7 +100,7 @@
      section of text - bigger so it reads as the viewer's own control, not another
      line of copy, but sized to its own label rather than stretched edge to edge. */
   .subject-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-  .subject-label { font: 500 18px/1 var(--font-mono); color: var(--text-2); }
+  .subject-label { font: 500 20px/1 var(--font-mono); color: var(--text-2); }
   /* 1.8x the original 16px/11px-14px control. */
   .select-subject { display: inline-block; width: auto; margin: 0; font-size: 28.8px; padding: 19.8px 25.2px; }
 
@@ -119,7 +119,9 @@
   @media (max-width: 900px) {
     .page { grid-template-columns: 1fr; gap: 0; }
     .col-text { padding: 32px 20px 64px; }
-    .col-viewer { order: -1; margin-bottom: 32px; }
+    /* Stacked instead of side by side here, so the two columns need a rule between
+       them the desktop layout never did - a plain border on whichever one is on top. */
+    .col-viewer { order: -1; margin-bottom: 32px; border-bottom: 1px solid var(--border); }
     .viewer-sticky { position: static; }
   }
   /* White, borderless, unrounded - the same white the page itself sits on, so there
