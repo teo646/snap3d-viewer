@@ -100,9 +100,10 @@
      section of text - bigger so it reads as the viewer's own control, not another
      line of copy, but sized to its own label rather than stretched edge to edge. */
   .subject-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-  .subject-label { font: 500 20px/1 var(--font-mono); color: var(--text-2); }
-  /* 1.8x the original 16px/11px-14px control. */
-  .select-subject { display: inline-block; width: auto; margin: 0; font-size: 28.8px; padding: 19.8px 25.2px; }
+  .subject-label { font: 500 15px/1 var(--font-mono); color: var(--text-2); }
+  /* 1.8x the original 16px control, but the padding stays close to the text instead
+     of scaling 1.8x too - that just left a lot of air above and below the label. */
+  .select-subject { display: inline-block; width: auto; margin: 0; font-size: 28.8px; padding: 8px 20px; }
 
   /* Centred as a block - width:fit-content sizes it to the stacked-image strip, the
      wider of the two children, and centres that; the caption text then stays flush
