@@ -23,31 +23,53 @@
     --accent: #ff5252;
     --border: rgba(0, 0, 0, 0.12);
     --bg: #ffffff;
+    --page-margin-bg: #f5f5f5; /* the gutter beside the centred column on a wide screen */
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
+    margin: 0; background: var(--page-margin-bg); color: var(--text);
     font: 18px/1.6 var(--font-sans); -webkit-font-smoothing: antialiased;
   }
 
-  /* One column, centred, with breathing room on a narrow screen - there's no second
-     column left to share the page with. */
-  .page { max-width: 960px; margin: 0 auto; padding: 56px 24px; }
+  /* One column, centred, filling the screen top to bottom: the header and the footer
+     points size to their own content, and the viewer takes whatever's left between
+     them - a flex column rather than the fixed aspect-ratio box this used to be, since
+     "however tall the screen leaves it" isn't one fixed ratio. 100vh rather than a
+     percentage chain up through html/body - it needs no cooperation from either.
+     Its own white background paints only this 960px column - it's what draws the
+     boundary between the "stage" and body's gutter colour beside it, now that the
+     stage itself is borderless and the same width as the viewport (see #stage below):
+     a child paints over its parent's background, so the transparent canvas shows this
+     white in the centre and falls through to the gutter colour past either edge of it,
+     with nothing stopping the bundle rendering into the gutter when it reaches that
+     edge - only this rectangle's colour changes there, not what's allowed to draw. */
+  .page {
+    min-height: 100vh; max-width: 960px; margin: 0 auto; padding: 40px 24px 24px;
+    display: flex; flex-direction: column;
+    background: var(--bg);
+  }
 
   h1 {
-    display: flex; align-items: center; gap: 12px;
+    display: flex; align-items: center; gap: 12px; flex: none;
     font: 400 2.16rem/1.2 var(--font-sans); margin: 0;
   }
   h1 .mark { width: 32px; height: 32px; color: var(--accent); flex-shrink: 0; }
-  h3.tagline { font: 400 1.575rem/1.35 var(--font-sans); margin: 14px 0 32px; color: var(--text-2); font-weight: 400; }
+  h3.tagline { flex: none; font: 400 1.575rem/1.35 var(--font-sans); margin: 14px 0 24px; color: var(--text-2); font-weight: 400; }
 
-  /* White, borderless, unrounded - the same white the page itself sits on, so there
-     is no box for the eye to find. modelviewer.dev's own model has no frame either;
-     it just floats on the page. */
+  /* Breaks out of .page's 960px column to the full viewport width - the classic
+     margin-left/right: 50% - 50vw trick - while staying a normal block in the flex
+     column's vertical flow otherwise, still just taking whatever height is left
+     between the header and the footer points. No background of its own: the canvas
+     the viewer draws into is transparent (see app.js's STAGE_BACKGROUND), so .page's
+     white shows through it in the centre and body's gutter colour shows through past
+     either edge of that - but the canvas itself is exactly this full-viewport box
+     regardless, so a bundle that turns far enough to reach past .page's edge keeps
+     rendering right on into the gutter rather than being clipped at it. */
   #stage {
-    position: relative; aspect-ratio: 1516 / 944; width: 100%;
-    background: #ffffff; overflow: hidden;
+    position: relative; flex: 1 1 auto; min-height: 240px;
+    width: 100vw; margin-left: calc(50% - 50vw); margin-right: calc(50% - 50vw);
+    overflow: hidden;
   }
   #stage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
   #stage.live #canvas { cursor: grab; }
@@ -68,6 +90,15 @@
   #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
   #progress.failed span { color: #d32f2f; }
   #progress.failed #bar { display: none; }
+
+  /* Pinned to the very bottom of the screen - the two lines the stage above yields
+     its height to make room for. */
+  .footer-points {
+    flex: none; list-style: none; margin: 16px 0 0; padding: 0;
+    color: var(--text-2); font: 15px/1.7 var(--font-sans);
+  }
+  .footer-points li { position: relative; padding-left: 16px; }
+  .footer-points li::before { content: '–'; position: absolute; left: 0; }
 </style>
 </head>
 <body>
@@ -85,6 +116,11 @@
     <canvas id="canvas"></canvas>
     <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
   </div>
+
+  <ul class="footer-points">
+    <li>사진만으로 생성</li>
+    <li>간단한 기존 웹사이트 연동</li>
+  </ul>
 </div>
 
 <script src="./dist/viewer.js"></script>

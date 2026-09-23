@@ -21,7 +21,11 @@ import { OrbitControls } from './controls.js';
 import { createRenderer } from './renderer.js';
 
 export const VIEWER_DEFAULTS = {
-  background: [0.05, 0.05, 0.06], // view_bundle.py's BACKGROUND
+  background: [0.05, 0.05, 0.06], // view_bundle.py's BACKGROUND; a 4th alpha component
+                                   // (default 1) lets the page behind the canvas show
+                                   // through instead - the canvas's own WebGL context
+                                   // already carries an alpha channel, so [r, g, b, 0]
+                                   // is all a fully transparent stage takes.
   controls: true,      // false, or an options object forwarded to OrbitControls
   render: 'demand',    // 'demand' | 'always'
   autoStart: true,
@@ -30,6 +34,8 @@ export const VIEWER_DEFAULTS = {
   fov: null,           // degrees; null takes the bundle's initial_camera.fov_deg
   contextAttributes: null,
   poster: null,         // image URL to show over the canvas until the first frame draws
+  autoRotate: true,     // slow idle spin, until the visitor drags/zooms/pans it themselves
+  autoRotateSpeed: 16,   // degrees per second
   onProgress: null,    // (loadedBytes, totalBytes)
   onReady: null,       // (viewer)
   onError: null,       // (error)
@@ -68,6 +74,7 @@ export class Snap3dViewer {
     this._last = 0;
     this._frames = 0;
     this._fpsAt = 0;
+    this._autoRotating = false;
     this._frame = this._frame.bind(this);
 
     this.gl = this.canvas.getContext('webgl2', {
@@ -273,10 +280,12 @@ export class Snap3dViewer {
       this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
       this.camera.azimuth = initial.azimuth_deg;
       this.camera.elevation = initial.elevation_deg;
+      this._autoRotating = this.options.autoRotate;
       if (this.options.controls) {
         this.controls = new OrbitControls(this.canvas, this.camera, {
           ...(this.options.controls === true ? {} : this.options.controls),
           onChange: () => this.requestRender(),
+          onInteract: () => { this._autoRotating = false; },
         });
       }
     }
@@ -306,20 +315,40 @@ export class Snap3dViewer {
     // Held keys advance the pan; anything they move marks the frame dirty via onChange.
     this.controls?.update(dt);
 
+    // Idle spin, until OrbitControls' onInteract cuts it off for good on the first
+    // real drag/zoom/pan - see the wiring in _load(). Advancing azimuth here rather
+    // than through setCamera skips its onChange (which would double up with the
+    // requestRender this loop is already mid-tick of) and the pointer-capture clamps
+    // a drag goes through, neither of which a plain idle spin needs.
+    if (this._autoRotating) {
+      this.camera.azimuth += this.options.autoRotateSpeed * dt;
+      this._dirty = true;
+    }
+
     if (this._dirty || this.options.render === 'always') {
       this._dirty = false;
       this._draw();
       this._reportFps(now, dt);
     }
-    // Keep clocking while an input is live, so the next pointermove has a fresh dt.
-    if (this._dirty || this.options.render === 'always' || this.controls?.active) this._schedule();
-    else this._last = 0; // idle: the next frame's dt starts from that frame, not from now
+    // Keep clocking while an input is live or the idle spin is running, so the next
+    // pointermove (or rotate step) has a fresh dt.
+    if (this._dirty || this.options.render === 'always' || this.controls?.active || this._autoRotating) {
+      this._schedule();
+    } else {
+      this._last = 0; // idle: the next frame's dt starts from that frame, not from now
+    }
   }
 
   _draw() {
     const { gl, canvas, camera, config } = this;
+    const [r, g, b, a = 1] = this.options.background;
     gl.viewport(0, 0, canvas.width, canvas.height);
-    gl.clearColor(...this.options.background, 1);
+    // The default WebGL context is premultipliedAlpha:true, which means the browser
+    // reads whatever's stored here as already multiplied by its own alpha - clearing
+    // to un-premultiplied [1,1,1,0] stores a literal (1,1,1,0), and compositors are
+    // free to treat that white-at-zero-alpha as opaque white rather than transparent.
+    // Premultiplying it here is what makes alpha 0 reliably transparent.
+    gl.clearColor(r * a, g * a, b * a, a);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // near/far track the orbit radius, exactly as view_bundle.py sets them each frame.

@@ -54,10 +54,14 @@ and `url` points at a snap3d bundle.
 | `resize()` `focus()` `snapshot(type, quality)` | manual resize, keyboard focus, PNG data URL |
 | `dispose()` | releases the GL objects, the listeners and the loop |
 
-Options: `background`, `controls` (`false`, or an `OrbitControls` config), `render`,
+Options: `background` (`[r, g, b]`, 0–1; a 4th alpha component, default 1, lets the page
+behind the canvas show through wherever the bundle didn't draw — the surface itself
+stays opaque either way), `controls` (`false`, or an `OrbitControls` config), `render`,
 `autoStart`, `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `poster` (an image
 URL shown over the canvas until the first frame draws — also takes a second, updated
-URL passed to `load(url, { poster })`), and the callbacks `onProgress` `onReady`
+URL passed to `load(url, { poster })`), `autoRotate` / `autoRotateSpeed` (a slow idle
+spin, on by default at 16°/s, that stops for good on the visitor's first drag, zoom, or
+pan key), and the callbacks `onProgress` `onReady`
 `onError` `onWarning` `onFrame`.
 
 The `<script>` build defines `Snap3dViewer` as the constructor itself, with the rest of

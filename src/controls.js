@@ -42,6 +42,10 @@ export class OrbitControls {
     this.enabled = true;
     /** Called whenever the camera moved, so a demand-driven loop knows to redraw. */
     this.onChange = options.onChange ?? (() => {});
+    /** Called once, the moment the visitor actually drives the camera themselves -
+     *  a drag, a wheel tick, a pan key - as opposed to a programmatic setCamera().
+     *  What the viewer's auto-rotate stops itself on. */
+    this.onInteract = options.onInteract ?? (() => {});
 
     this._radius0 = camera.radius;
     this._pointers = new Map();
@@ -135,6 +139,7 @@ export class OrbitControls {
 
     this._on(el, 'pointerdown', (event) => {
       if (!this.enabled) return;
+      this.onInteract();
       el.setPointerCapture?.(event.pointerId);
       this._pointers.set(event.pointerId, event);
       el.classList.add('shs-dragging');
@@ -169,6 +174,7 @@ export class OrbitControls {
 
     this._on(el, 'wheel', (event) => {
       if (!this.enabled) return;
+      this.onInteract();
       event.preventDefault(); // otherwise the host page scrolls out from under the canvas
       // deltaMode 1 is lines, 0 is pixels; both normalized to pygame's wheel "ticks".
       this.zoom(-event.deltaY / (event.deltaMode === 1 ? 3 : 100));
@@ -179,8 +185,9 @@ export class OrbitControls {
     this._on(el, 'keydown', (event) => {
       if (!this.enabled) return;
       const key = event.key.toLowerCase();
-      if (key === 'r') this.reset();
+      if (key === 'r') { this.onInteract(); this.reset(); }
       if (!PAN_KEYS[key]) return;
+      this.onInteract();
       event.preventDefault(); // arrows would scroll the host page
       this._keys.add(key);
       this.onChange();

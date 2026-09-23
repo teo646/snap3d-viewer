@@ -1,6 +1,9 @@
 # Personal-use exports (e.g. rotation GIFs) - not part of the project.
 /exports/
 
+# Playwright MCP's own screenshots/console logs from verifying changes in-session.
+/.playwright-mcp/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

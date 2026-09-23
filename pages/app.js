@@ -17,10 +17,12 @@
 
   const BASE = new URL('.', document.currentScript.src).href;
 
-  // The viewer's `background` option is [r, g, b] in 0-1, WebGL's own convention -
-  // pure white, the same white the page itself sits on, so the live render's clear
-  // colour disappears into the page rather than marking where the stage begins.
-  const STAGE_BACKGROUND = [1, 1, 1];
+  // Transparent (the 4th, alpha component of the viewer's [r, g, b, a] `background`)
+  // rather than matched to the page's own colour - #stage has no background of its
+  // own either (see the page's CSS), so body's colour shows straight through the
+  // canvas's empty pixels, right out to the edges the canvas now spans, and the
+  // bundle reads as floating on that colour rather than boxed onto a white card.
+  const STAGE_BACKGROUND = [1, 1, 1, 0];
 
   const $ = (id) => document.getElementById(id);
   const stage = $('stage');
