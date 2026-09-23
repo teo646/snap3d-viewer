@@ -135,19 +135,12 @@ no one ever hand-edits a build artifact. The page itself loads that same
 `dist/viewer.js`, so a broken build is visible on the front page rather than only in a
 consumer's console.
 
-Each subject on the landing page is introduced by five of the images it was fit from,
-so what went in and what came out sit one above the other. `tools/make_input_stacks.py`
-rebuilds those from the runs' ingest stages.
-
-The landing page renders the first subject on arrival, over its own still so there is
-something to look at while the 12 MB arrives, and then pulls the other three into the
-HTTP cache one at a time behind it — sequential and low priority, so speculation never
-competes with the bundle the visitor is waiting for, and skipped entirely when the
-browser reports a metered or slow connection. Measured at 25 Mbit/s: first frame at
-4.4 s, the second bundle's first request at 4.3 s *after* that, and switching subject
-then costs a decode rather than a download. The stills are captured from the page
-itself, so the live render replaces them at the same framing. Enabling Pages is a one-time manual step: **Settings → Pages → Source: GitHub
-Actions**.
+Each landing page - the flagship at the site root and every `pages/config/*.json`
+variant under it - renders one bundle, over its own poster still so there is something
+to look at while the megabytes arrive; the still is captured from the page itself, so
+the live render replaces it at the same framing. There is no subject picker on the page
+itself - one bundle per page, chosen by its config. Enabling Pages is a one-time manual
+step: **Settings → Pages → Source: GitHub Actions**.
 
 The version is declared in both `package.json` and `src/index.js`; the build fails if
 they disagree, so drift becomes a red CI run rather than a wrong number in a bug report.

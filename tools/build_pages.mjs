@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Generates one landing-page variant per file in pages/config/ (an industry pitch: a
-// different tagline, About paragraph, and subset/order of the demo bundles) alongside
-// the flagship page at the site root.
+// different tagline and which bundle it opens on) alongside the flagship page at the
+// site root.
 //
 // A variant isn't hand-authored HTML - it's pages/index.html itself with its
 // PAGE_CONFIG block swapped for the variant's config and its two site-root script
@@ -40,7 +40,7 @@ const files = readdirSync(configDir).filter((f) => extname(f) === '.json');
 for (const file of files) {
   const slug = basename(file, '.json');
   const config = JSON.parse(readFileSync(join(configDir, file), 'utf8'));
-  for (const field of ['tagline', 'about', 'bundles']) {
+  for (const field of ['tagline', 'bundles']) {
     if (!(field in config)) {
       console.error(`pages/config/${file}: missing "${field}"`);
       process.exit(1);

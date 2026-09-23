@@ -41,7 +41,6 @@ jobs:
           mkdir -p _site/dist
           cp pages/index.html pages/app.js _site/
           cp -r pages/posters _site/posters
-          cp -r pages/inputs _site/inputs
           cp dist/* _site/dist/
           # One folder per pages/config/*.json - an industry pitch variant of the
           # flagship page above, e.g. pages/config/clothes.json -> /clothes/.

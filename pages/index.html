@@ -10,13 +10,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   /*
-   * The design system below is lifted deliberately from modelviewer.dev: Rubik for
-   * prose and headings, Roboto Mono for anything that is actually code, a soft-black
-   * text colour at 87% opacity rather than pure #000 (Material Design's own reasoning
-   * - pure black against white is harsher than text needs to be), a single coral
-   * accent for every link, and a two-column layout with the live demo pinned in a
-   * sticky right column while the left column explains it. Only the content below is
-   * this project's; the type scale, colours and layout mechanics are theirs.
+   * As stripped down as the content is: just a title, a tagline and the live render.
+   * Still Rubik for prose, a soft-black text colour rather than pure #000, and one
+   * coral accent - the same design system as before, just with almost nothing left
+   * for it to apply to.
    */
   :root {
     --font-sans: 'Rubik', sans-serif;
@@ -24,12 +21,8 @@
     --text: rgba(0, 0, 0, 0.87);
     --text-2: rgba(0, 0, 0, 0.6);
     --accent: #ff5252;
-    --code-bg: rgba(0, 0, 0, 0.04);
     --border: rgba(0, 0, 0, 0.12);
     --bg: #ffffff;
-    /* Syntax colours for a light background - GitHub-light-ish, and none of them the
-       same red as --accent, so a link and a keyword never read as the same thing. */
-    --c-tag: #2e7d32; --c-attr: #6a1b9a; --c-str: #c2410c; --c-kw: #1565c0; --c-punct: rgba(0, 0, 0, 0.45);
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -37,103 +30,18 @@
     margin: 0; background: var(--bg); color: var(--text);
     font: 18px/1.6 var(--font-sans); -webkit-font-smoothing: antialiased;
   }
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  a.link-underline { text-decoration: underline; }
-  code, pre, select { font-family: var(--font-mono); }
-  p { margin: 0 0 14px; }
-  ul { margin: 0 0 14px; padding-left: 22px; }
-  li { margin-bottom: 6px; }
-  p > code, li > code { font-size: 0.85em; background: var(--code-bg); padding: 2px 5px; border-radius: 4px; }
 
-  /* Two columns, the right one pinned while the left one scrolls past it - the same
-     mechanism modelviewer.dev uses for its live model. Stacks to one column, viewer
-     first, under a narrow viewport. */
-  /* Edge to edge, no outer gutter and no max-width cap - modelviewer.dev's own
-     `.sample` grid runs the full viewport width; the 40px/60px breathing room a
-     reader needs comes from padding on the text column alone, and the viewer column
-     gets none, so it can go flush to the page edge with nothing to mark where it
-     starts. */
-  .page { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; }
-  /* A grid track defaults to its content's min-content width, and the embed <pre> below
-     doesn't wrap - without this, that unbreakable code line would refuse to shrink the
-     track past its own width, so on a narrow viewport the whole row (viewer included)
-     overflows past the screen instead of the code block scrolling on its own. */
-  .col-text, .col-viewer { min-width: 0; }
-  .col-text { padding: 40px 60px; }
+  /* One column, centred, with breathing room on a narrow screen - there's no second
+     column left to share the page with. */
+  .page { max-width: 960px; margin: 0 auto; padding: 56px 24px; }
 
   h1 {
     display: flex; align-items: center; gap: 12px;
     font: 400 2.16rem/1.2 var(--font-sans); margin: 0;
   }
   h1 .mark { width: 32px; height: 32px; color: var(--accent); flex-shrink: 0; }
+  h3.tagline { font: 400 1.575rem/1.35 var(--font-sans); margin: 14px 0 32px; color: var(--text-2); font-weight: 400; }
 
-  /* The tagline and every section title share one size and weight - modelviewer.dev
-     runs both through the same <h3>, so a reader's eye doesn't have to learn a second
-     heading style partway down the page. Only the *later* sections get the dividing
-     line underneath; the first one after the tagline reads fine without it. */
-  h3 {
-    font: 400 1.575rem/1.35 var(--font-sans); margin: 28px 0 10px; color: var(--text);
-  }
-  h3.tagline { margin-top: 14px; color: var(--text-2); font-weight: 400; }
-  h3.bordered { margin-top: 44px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
-
-
-  pre {
-    margin: 10px 0 16px; padding: 12px 16px; background: var(--code-bg); border-radius: 8px;
-    overflow-x: auto; font-size: 14.4px; line-height: 1.65;
-  }
-
-  /* A native <select>, styled just enough to sit in the page's own font and colour -
-     no custom chevron this time. (An earlier version of this page hand-drew one as a
-     background-image, and without an explicit `background-size` it scaled like
-     `contain` against the whole padding box, blowing a 12px glyph up to the select's
-     own height and burying it under the option text. The native arrow has none of
-     that failure mode, and looks right in this plainer design anyway.) */
-  .select-plain {
-    font: 500 14px/1.3 var(--font-mono); color: var(--text); background: #fff;
-    border: 1px solid var(--border); border-radius: 6px; padding: 6px 9px; cursor: pointer;
-  }
-  .select-plain:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-  /* The subject picker now sits right above the stage rather than buried in a Demo
-     section of text - bigger so it reads as the viewer's own control, not another
-     line of copy, but sized to its own label rather than stretched edge to edge.
-     Sized in cqw off .viewer-sticky's own width (see the container-type below it)
-     rather than a fixed px, so it scales with the viewer itself - the same control
-     that looks right in the desktop column would otherwise be oversized once that
-     column becomes the whole (much narrower) mobile viewport. clamp() just keeps it
-     off the ends: never unreadably small, never comically large on an ultrawide. */
-  .subject-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
-  .subject-label { font-weight: 500; font-family: var(--font-mono); line-height: 1; color: var(--text-2); font-size: clamp(13px, 2.6cqw, 18px); }
-  .select-subject {
-    display: inline-block; width: auto; margin: 0;
-    font-size: clamp(16px, 5cqw, 34px);
-    padding: clamp(6px, 1.4cqw, 10px) clamp(14px, 3.5cqw, 24px);
-  }
-
-  /* Centred as a block - width:fit-content sizes it to the stacked-image strip, the
-     wider of the two children, and centres that; the caption text then stays flush
-     with that block's own left edge rather than being centred as text itself. */
-  .viewer-caption { margin-top: 16px; width: fit-content; margin-left: auto; margin-right: auto; }
-  #inputs { display: block; height: 84px; width: auto; max-width: 100%; border-radius: 6px; margin: 0 0 8px; }
-  .provenance { color: var(--text-2); }
-
-  /* --- the viewer itself - mechanics unchanged from before, restyled to match --- */
-  /* container-type here is what makes the subject-picker's cqw units above mean
-     "percent of the viewer's own width" rather than the viewport's. */
-  .viewer-sticky { position: sticky; top: 32px; container-type: inline-size; }
-  /* This has to come after the rule above: same specificity, so whichever is later in
-     the stylesheet wins regardless of the media condition, and a mobile override placed
-     earlier would silently lose to it. */
-  @media (max-width: 900px) {
-    .page { grid-template-columns: 1fr; gap: 0; }
-    .col-text { padding: 32px 20px 64px; }
-    /* Stacked instead of side by side here, so the two columns need a rule between
-       them the desktop layout never did - a plain border on whichever one is on top. */
-    .col-viewer { order: -1; margin-bottom: 32px; border-bottom: 1px solid var(--border); }
-    .viewer-sticky { position: static; }
-  }
   /* White, borderless, unrounded - the same white the page itself sits on, so there
      is no box for the eye to find. modelviewer.dev's own model has no frame either;
      it just floats on the page. */
@@ -148,7 +56,7 @@
 
   /* The progress sits at the foot of the stage rather than over the middle of it: the
      subject is the point of the poster, and a bar across its face hides exactly what
-     the visitor came to look at. The gradient fades to white now, not to black. */
+     the visitor came to look at. */
   #progress {
     position: absolute; left: 0; right: 0; bottom: 0;
     display: grid; justify-items: center; gap: 8px; padding: 20px 16px 16px;
@@ -160,80 +68,22 @@
   #bar > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s linear; }
   #progress.failed span { color: #d32f2f; }
   #progress.failed #bar { display: none; }
-
-  /* A one-time nudge that this is draggable, not a static picture - shown after the
-     first bundle settles and dismissed for good on the first drag (or on its own after
-     a few seconds), never repeated on a later subject switch. Sits above the canvas but
-     pointer-events:none so it never steals the drag it's advertising. */
-  #drag-hint {
-    position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 7px;
-    padding: 7px 14px; border-radius: 999px;
-    background: rgba(255, 255, 255, 0.92); box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14);
-    color: var(--text-2); font: 500 13px/1 var(--font-mono); white-space: nowrap;
-    opacity: 0; pointer-events: none; transition: opacity 0.5s ease;
-  }
-  #drag-hint.visible { opacity: 1; }
-  #drag-hint svg { width: 18px; height: 18px; flex-shrink: 0; animation: drag-hint-nudge 1.4s ease-in-out infinite; }
-  @keyframes drag-hint-nudge {
-    0%, 100% { transform: translateX(-3px); }
-    50% { transform: translateX(3px); }
-  }
-
-  /* Syntax colouring, written into the markup by hand - a highlighter library would
-     be the page's only dependency, for a handful of lines of code. */
-  .t { color: var(--c-tag); }
-  .a { color: var(--c-attr); }
-  .s { color: var(--c-str); }
-  .k { color: var(--c-kw); }
-  .punct { color: var(--c-punct); }
 </style>
 </head>
 <body>
 <div class="page">
-  <div class="col-text">
-    <h1>
-      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-        <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.4"/>
-        <circle cx="12" cy="12" r="2.6" fill="currentColor"/>
-      </svg>
-      snap3d
-    </h1>
-    <h3 class="tagline" id="tagline"></h3>
+  <h1>
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+      <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="12" cy="12" r="2.6" fill="currentColor"/>
+    </svg>
+    snap3d
+  </h1>
+  <h3 class="tagline" id="tagline"></h3>
 
-    <h3>About</h3>
-    <p id="about"></p>
-    <pre><code id="embed-code"></code></pre>
-
-    <h3 class="bordered">Contact for snap3d software</h3>
-    <p>
-      한양대학교 컴퓨터소프트웨어학부 최태영<br>
-      <a href="mailto:tyul0529@naver.com">tyul0529@naver.com</a> · 010-9237-0934
-    </p>
-  </div>
-
-  <div class="col-viewer">
-    <div class="viewer-sticky">
-      <div class="subject-picker">
-        <span class="subject-label">Demo object:</span>
-        <select id="subject" class="select-plain select-subject" aria-label="subject to render"></select>
-      </div>
-      <div id="stage">
-        <canvas id="canvas"></canvas>
-        <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
-        <div id="drag-hint" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M9 8l-4 4 4 4"/>
-            <path d="M15 8l4 4-4 4"/>
-          </svg>
-          드래그해서 회전
-        </div>
-      </div>
-      <div class="viewer-caption">
-        <img id="inputs" alt="" decoding="async">
-        <p class="provenance"><span id="capture"></span>장의 이미지로 bundle 생성</p>
-      </div>
-    </div>
+  <div id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="progress"><div id="bar"><i></i></div><span id="status">starting…</span></div>
   </div>
 </div>
 
@@ -242,13 +92,9 @@
 // PAGE_CONFIG:START
 window.SNAP3D_PAGE = {
   tagline: '사진을 웹 3D 모델로 변환',
-  about: `다양한 각도에서 촬영한 사진들을 기반으로 snap3d 소프트웨어가
-    <a class="link-underline" href="https://github.com/teo646/snap3d-viewer/tree/main/demo/snap3d_bundles">.snap3d</a>
-    bundle을 만듭니다. 간단한 js 코드로 번들을 웹에서 렌더링하세요.`,
   // Every run from the pipeline, each a `<name>.snap3d` folder copied in as it stands.
-  // The bundle folder, the poster and the input stack are all named from `name`. This
-  // is the flagship page - the full catalogue; pages/config/*.json curate a subset
-  // each for one audience.
+  // Only bundles[0] is ever shown - see app.js - but the rest of the list stays here
+  // as the record of what this page could show if a picker comes back.
   bundles: [
     { name: 'boots', label: 'boots', images: 114 },
     { name: 'model_house', label: 'model house', images: 49 },
