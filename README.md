@@ -94,35 +94,15 @@ folder be recognised as *the* deliverable rather than as some directory. The loa
 treats it as an ordinary directory URL, so a bundle exported before the convention -
 a plain folder - still loads.
 
-The export stage names the folder after its run (`photo_20260904_152839.snap3d`). The
-three bundles here are named for their subject - `framed_painting` (run `holy_family`),
-`model_house` (run `scan6`) and `boots` - because they are what a visitor to the
-landing page reads, and a timestamp says nothing about what is on screen. Renaming
-costs the run id, so the mapping back to it lives in `tools/make_input_stacks.py`'s
-`IMAGE_SETS`, which needs both anyway.
+The export stage names the folder after its run (`photo_20260904_152839.snap3d`); a
+consumer is free to rename it to whatever names its subject, since nothing in the
+bundle itself depends on the folder name.
 
 The `format` string inside `config.json` names the payload format. `sh_texture_bundle/3`
 added `sh.storage`: the pipeline now writes `"unorm8"` by default - each (coefficient,
 channel) quantized to 8 bits over its own min..max, with the offset and scale in
 `config.json` - and `"float16"` remains available. `/2` bundles have no `storage` key and
-are float16; this viewer loads both. The demo bundles are `/3`: `model_house` and `boots`
-store unorm8, `framed_painting` float16 - a painting's faces blend colours too finely for
-8-bit storage, so that capture keeps the larger file.
-
-Copy a `.snap3d` folder into `demo/snap3d_bundles/` as it stands and serve it:
-
-```
-python tools/serve.py                               # http://127.0.0.1:8000/demo/
-```
-
-`?bundle=<name>` picks one when several are present; an optional
-`demo/snap3d_bundles/index.json` (`{"snap3d_bundles": ["a", "b"]}`) populates the
-picker. Both take the bare name - the `.snap3d` suffix is added on the way to the URL.
-
-Four bundles are committed rather than ignored, because the published landing page
-renders them live and CI has to be able to publish what it did not build. They are
-~12 MB each; a fifth belongs in `demo/snap3d_bundles/` and stays out of git unless the
-gallery grows to include it.
+are float16; this viewer loads both.
 
 ## Building and publishing
 
@@ -133,18 +113,9 @@ npm run check      # bundles every entry without writing anything
 ```
 
 `dist/` is gitignored. `.github/workflows/pages.yml` rebuilds it on every push to `main`
-and publishes it to GitHub Pages together with the landing page, its posters and the
-four bundles, so the URL in the Quick Start is always the build that matches `main` and
-no one ever hand-edits a build artifact. The page itself loads that same
-`dist/viewer.js`, so a broken build is visible on the front page rather than only in a
-consumer's console.
-
-Each landing page - the flagship at the site root and every `pages/config/*.json`
-variant under it - renders one bundle, over its own poster still so there is something
-to look at while the megabytes arrive; the still is captured from the page itself, so
-the live render replaces it at the same framing. There is no subject picker on the page
-itself - one bundle per page, chosen by its config. Enabling Pages is a one-time manual
-step: **Settings → Pages → Source: GitHub Actions**.
+and publishes it to GitHub Pages, so the URL in the Quick Start is always the build that
+matches `main` and no one ever hand-edits a build artifact. Enabling Pages is a
+one-time manual step: **Settings → Pages → Source: GitHub Actions**.
 
 The version is declared in both `package.json` and `src/index.js`; the build fails if
 they disagree, so drift becomes a red CI run rather than a wrong number in a bug report.
@@ -205,15 +176,7 @@ src/bundle.js                fetches the four files, applies the two flips
 src/glb.js                   geometry-only glTF Binary reader
 src/ktx2.js                  KTX2 reader; inflates via DecompressionStream
 src/frame.js                 per-vertex normals and raw tangents, ported exactly
-demo/index.html              canvas, HUD, loading overlay
-demo/demo.js                 which bundle to open, HUD wiring - policy, not rendering
-demo/snap3d_bundles/<name>.snap3d/  a snap3d bundle, copied in as it stands
-tools/serve.py               static server with gzip; python -m http.server also works
 tools/build.mjs              esbuild: the three dist/ outputs
-pages/index.html             the Pages landing page: posters, gallery, live viewer
-pages/posters/               one still per bundle, plus a thumbnail for the gallery
-pages/inputs/                the photo stack showing what each bundle was fit from
-tools/make_input_stacks.py   rebuilds pages/inputs/ from a run's ingest images
 .github/workflows/pages.yml  build dist/ and deploy it on every push to main
 ```
 

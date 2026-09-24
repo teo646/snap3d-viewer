@@ -23,8 +23,7 @@
   "files": ["dist", "src", "README.md", "LICENSE"],
   "scripts": {
     "build": "node tools/build.mjs",
-    "check": "node tools/build.mjs --check",
-    "serve": "python tools/serve.py"
+    "check": "node tools/build.mjs --check"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

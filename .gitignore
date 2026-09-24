@@ -223,24 +223,6 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# snap3d bundles are several MB of atlas each and are reproducible from a pipeline
-# run, so they stay out - except the ones the landing pages render live, which have
-# to be in the repo for CI to publish them.
-demo/snap3d_bundles/*/
-demo/snap3d_bundles/index.json
-!demo/snap3d_bundles/framed_painting.snap3d/
-!demo/snap3d_bundles/model_house.snap3d/
-!demo/snap3d_bundles/boots.snap3d/
-!demo/snap3d_bundles/clothes01.snap3d/
-!demo/snap3d_bundles/clothes04.snap3d/
-!demo/snap3d_bundles/clothes05.snap3d/
-!demo/snap3d_bundles/tile01.snap3d/
-!demo/snap3d_bundles/tile02.snap3d/
-!demo/snap3d_bundles/tile03.snap3d/
-!demo/snap3d_bundles/custom_impasto.snap3d/
-!demo/snap3d_bundles/model_in_cap.snap3d/
-!demo/snap3d_bundles/statue.snap3d/
-
 # The build output. CI rebuilds it on every push to main and publishes it to
 # Pages, so a checked-in dist/ would only ever be a second, staler truth.
 node_modules/
