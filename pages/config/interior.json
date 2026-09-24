@@ -1,9 +1,0 @@
-{
-  "tagline": "웹페이지에서 샘플을 제공합니다.",
-  "about": "촬영한 타일과 마감재 샘플을 snap3d 소프트웨어가 <a class=\"link-underline\" href=\"https://github.com/teo646/snap3d-viewer/tree/main/demo/snap3d_bundles\">.snap3d</a> bundle을 만듭니다. 샘플의 질감과 색감을 웹에서 그대로 볼 수 있습니다.",
-  "bundles": [
-    { "name": "tile01", "label": "tile01", "images": 87 },
-    { "name": "tile02", "label": "tile02", "images": 67 },
-    { "name": "tile03", "label": "tile03", "images": 111 }
-  ]
-}
