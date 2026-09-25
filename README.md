@@ -178,6 +178,8 @@ src/ktx2.js                  KTX2 reader; inflates via DecompressionStream
 src/frame.js                 per-vertex normals and raw tangents, ported exactly
 tools/build.mjs              esbuild: the three dist/ outputs
 .github/workflows/pages.yml  build dist/ and deploy it on every push to main
+editor/                      a page for picking a bundle's default camera pose - see
+                              editor/README.md
 ```
 
 ## Keeping the shader port honest
