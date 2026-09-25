@@ -182,14 +182,31 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const root = host.attachShadow({ mode: 'open' });
     root.innerHTML = `
       <style>${EDITOR_CSS}</style>
-      <div id="panel">
-        <pre id="readout">loading…</pre>
-        <div id="transport">
-          <button id="play" type="button">Pause (Space)</button>
-          <button id="reset" type="button">Reset (R)</button>
+      <div id="bottom-bar">
+        <div id="panel">
+          <pre id="readout">loading…</pre>
+          <p id="hint">drag orbit &middot; wheel zoom &middot; wasd/arrows pan</p>
+          <div id="transport">
+            <button id="play" type="button">Pause (Space)</button>
+            <button id="reset" type="button">Reset (R)</button>
+            <button id="help" type="button" aria-label="Controls help">?</button>
+          </div>
         </div>
         <button id="make-config" type="button" class="primary">Make config file</button>
       </div>
+      <dialog id="help-dialog">
+        <button id="help-close" type="button" aria-label="Close">✕</button>
+        <h2>Controls</h2>
+        <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these.</p>
+        <dl>
+          <dt>Drag</dt><dd>orbit</dd>
+          <dt>Wheel / pinch</dt><dd>zoom</dd>
+          <dt>W A S D<br>or arrows</dt><dd>pan the pivot - keeps spinning through this one</dd>
+          <dt>Space</dt><dd>play / pause the idle spin</dd>
+          <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
+          <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
+        </dl>
+      </dialog>
       <dialog id="dialog">
         <button id="close" type="button" aria-label="Close">✕</button>
         <h2>New config.json</h2>
@@ -209,6 +226,9 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       readout: $('readout'),
       playBtn: $('play'),
       resetBtn: $('reset'),
+      helpBtn: $('help'),
+      helpDialog: $('help-dialog'),
+      helpCloseBtn: $('help-close'),
       makeBtn: $('make-config'),
       dialog: $('dialog'),
       closeBtn: $('close'),
@@ -230,6 +250,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     els.closeBtn.addEventListener('click', () => els.dialog.close());
     els.dialog.addEventListener('click', (e) => {
       if (e.target === els.dialog) els.dialog.close(); // the backdrop
+    });
+    els.helpBtn.addEventListener('click', () => els.helpDialog.showModal());
+    els.helpCloseBtn.addEventListener('click', () => els.helpDialog.close());
+    els.helpDialog.addEventListener('click', (e) => {
+      if (e.target === els.helpDialog) els.helpDialog.close();
     });
 
     const setStatus = (text, kind = '') => {
@@ -290,14 +315,24 @@ export class Snap3dViewerEditor extends Snap3dViewer {
 const EDITOR_CSS = `
 :host { all: initial; }
 * { box-sizing: border-box; }
+/* #panel and #make-config are laid out by #bottom-bar, not by their own fixed
+   offsets, so the two can never overlap regardless of #panel's actual height: side by
+   side on a wide viewport, stacked on a narrow one. Only #bottom-bar itself is
+   position: fixed - a fixed descendant of a *filtered* fixed ancestor would position
+   against that ancestor's own box instead of the viewport (backdrop-filter creates a
+   containing block for fixed descendants), so nothing below it repeats that. */
+#bottom-bar {
+  position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 2147483000;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
 #panel {
-  position: fixed; left: 16px; bottom: 16px; z-index: 2147483000;
-  display: flex; flex-direction: column; gap: 10px; width: 240px;
+  display: flex; flex-direction: column; gap: 10px; width: 240px; flex: none;
   background: rgba(18, 19, 23, 0.88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 14px;
   font: 12px/1.6 ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', monospace; color: #9195a0;
 }
 #readout { margin: 0; white-space: pre; }
+#hint { margin: 0; font-size: 11px; color: #6d7078; white-space: normal; }
 #transport { display: flex; gap: 6px; }
 button {
   font: 600 12px/1 -apple-system, 'Segoe UI', system-ui, sans-serif; color: #f2f3f5; cursor: pointer;
@@ -308,10 +343,14 @@ button:hover { background: #232429; }
 button:active { transform: translateY(1px); }
 button.primary { background: #ff5252; border-color: #ff5252; color: #2a0b09; }
 button.primary:hover { background: #ff6a63; }
+#help { flex: none; width: 30px; padding: 8px 0; }
 #make-config {
-  position: fixed; right: 16px; bottom: 16px; z-index: 2147483000;
-  padding: 12px 18px; font-size: 13px; border-radius: 10px;
+  flex: none; padding: 12px 18px; font-size: 13px; border-radius: 10px;
   box-shadow: 0 12px 32px -12px rgba(255, 82, 82, 0.5);
+}
+@media (max-width: 640px) {
+  #bottom-bar { flex-direction: column; align-items: stretch; }
+  #panel { width: 100%; }
 }
 dialog {
   max-width: min(640px, calc(100vw - 48px)); width: 100%;
@@ -324,7 +363,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
 dialog h2 { margin: 0 0 4px; font-size: 18px; letter-spacing: -0.01em; }
 dialog p.sub { margin: 0 0 16px; color: #9195a0; font-size: 13px; }
 dialog code { background: #1a1b20; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-#close { position: absolute; top: 14px; right: 14px; padding: 6px 9px; flex: none; }
+#close, #help-close { position: absolute; top: 14px; right: 14px; padding: 6px 9px; flex: none; }
+#help-dialog dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; }
+#help-dialog dt { font: 600 12px/1.5 ui-monospace, monospace; color: #ff5252; white-space: nowrap; }
+#help-dialog dd { margin: 0; font-size: 13.5px; line-height: 1.55; }
 #text {
   width: 100%; height: 300px; resize: vertical; white-space: pre; overflow: auto;
   font: 12px/1.4 ui-monospace, 'SF Mono', Consolas, 'Roboto Mono', monospace; color: #f2f3f5;
