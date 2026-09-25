@@ -78,6 +78,7 @@ export class Snap3dViewer {
     this._dirty = true;
     this._running = this.options.autoStart;
     this._disposed = false;
+    this._loadSeq = 0; // bumped on every _load() so an overlapping one can tell it lost
     this._last = 0;
     this._frames = 0;
     this._fpsAt = 0;
@@ -295,8 +296,15 @@ export class Snap3dViewer {
   // -- internals ------------------------------------------------------------------
 
   async _load() {
+    // load() can be called again before a prior _load() finishes (a page swapping
+    // bundles fast, or a doubled keystroke on an input with no in-flight guard of its
+    // own) - whichever call's fetch resolves last would otherwise win regardless of
+    // which bundle is actually wanted, and the loser's renderer would leak with
+    // nothing left holding a reference to dispose it. The loser bails here, before
+    // touching any shared state or allocating GPU resources.
+    const seq = ++this._loadSeq;
     const bundle = await loadBundle(this.url, (loaded, total) => this.options.onProgress?.(loaded, total));
-    if (this._disposed) return this;
+    if (this._disposed || seq !== this._loadSeq) return this;
 
     this.config = bundle.config;
     this.stats = bundle.stats;
@@ -354,6 +362,11 @@ export class Snap3dViewer {
 
   _frame(now) {
     this._raf = 0;
+    // _schedule() refuses to schedule without a renderer, but a frame already
+    // in flight when load() synchronously nulls it (config/camera go with it) still
+    // fires - config/camera come back together with it in _load(), so this one check
+    // covers all three.
+    if (this._disposed || !this._renderer) return;
     const dt = this._last ? Math.min((now - this._last) / 1000, 0.1) : 0;
     this._last = now;
 

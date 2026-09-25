@@ -107,9 +107,8 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.canvas.addEventListener('keyup', this._onKeyup);
     // I/J/K/L only act while held, same as WASD; losing focus mid-hold must not leave
     // one stuck "down" forever (mirrors OrbitControls' own blur handling for its keys).
-    this.canvas.addEventListener('blur', () => {
-      this._axisMoveKeys.clear();
-    });
+    this._onBlur = () => this._axisMoveKeys.clear();
+    this.canvas.addEventListener('blur', this._onBlur);
 
     this._buildAxisLine();
     if (ui) this._buildUI();
@@ -151,8 +150,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     if (!this.camera || !this.config) return null;
     const round = (n) => Math.round(n * 1e6) / 1e6; // trims float noise, keeps real precision
     const cam0 = this.config.initial_camera;
-    const nearScale = cam0.radius > 0 ? cam0.near / cam0.radius : 0.02;
-    const farScale = cam0.radius > 0 ? cam0.far / cam0.radius : 20;
+    // A malformed/hand-edited bundle missing near or far would otherwise divide
+    // through to NaN here and export it silently - Number.isFinite catches that as
+    // well as radius <= 0.
+    const nearScale = Number.isFinite(cam0.near / cam0.radius) && cam0.radius > 0 ? cam0.near / cam0.radius : 0.02;
+    const farScale = Number.isFinite(cam0.far / cam0.radius) && cam0.radius > 0 ? cam0.far / cam0.radius : 20;
 
     const c = this.camera;
     // Straight off the live camera - the spin is *in* it (spinBy swings the camera
@@ -200,6 +202,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.canvas.removeEventListener('wheel', this._onWheel);
     this.canvas.removeEventListener('keydown', this._onKeydown);
     this.canvas.removeEventListener('keyup', this._onKeyup);
+    this.canvas.removeEventListener('blur', this._onBlur);
     this._host?.remove();
     this._host = null;
     this._axisCanvas?.remove();

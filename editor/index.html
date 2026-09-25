@@ -4,13 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>snap3d editor</title>
-<meta name="description" content="snap3d 번들의 기본 카메라 시점(피벗, 확대, 각도)을 골라 새 config.json을 만드는 도구.">
+<meta name="description" content="snap3d 번들의 회전축과 카메라 기본값을 골라 새 config.json을 만드는 도구.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d0d0f'/%3E%3Ccircle cx='16' cy='16' r='8.5' fill='none' stroke='%23ff5252' stroke-width='2.5'/%3E%3Ccircle cx='12.5' cy='12.5' r='2.6' fill='%23ff5252'/%3E%3C/svg%3E">
 <style>
-  /* A tool for whoever runs the storefront, not a storefront itself: dark, dense,
-     numbers over polish. No external fonts or icon sets - it has to work offline, off
-     a `python -m http.server` on a laptop with no network. One accent colour (the
-     snap3d red) ties it to the viewer it configures; everything else is neutral. */
+  /* This page's only job is to pick a bundle and hand the canvas to
+     Snap3dViewerEditor - the readout, the transport, the axis overlay and the
+     "make config file" dialog are that class's own shadow-DOM UI (see
+     ../src/viewer-editor.js), not reimplemented here. Keeping it that way is the
+     point: one editing surface, in the library, that any page can drop in instead
+     of a second one hand-maintained beside it. */
   :root {
     --font: -apple-system, 'Segoe UI', system-ui, sans-serif;
     --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, 'Roboto Mono', monospace;
@@ -19,11 +21,7 @@
     --bg: #0a0b0d;
     --panel: rgba(18, 19, 23, 0.88);
     --line: rgba(255, 255, 255, 0.12);
-    --accent: #ff5252;
-    --accent-ink: #2a0b09;
-    --ok: #5bc98a;
     --err: #ff8a80;
-    --radius: 10px;
   }
   * { box-sizing: border-box; }
   html, body {
@@ -31,157 +29,93 @@
     font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased;
     overflow: hidden;
   }
-  button {
-    font: 600 13px/1 var(--font); color: var(--ink); cursor: pointer;
-    background: #1a1b20; border: 1px solid var(--line); border-radius: 7px;
-    padding: 9px 14px; transition: background-color 120ms, border-color 120ms, opacity 120ms;
-  }
-  button:hover:not(:disabled) { background: #232429; border-color: rgba(255, 255, 255, 0.2); }
-  button:active:not(:disabled) { transform: translateY(1px); }
-  button:disabled { opacity: 0.4; cursor: not-allowed; }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  button.primary:hover:not(:disabled) { background: #ff6a63; }
-  input, textarea {
-    font: 13px/1.4 var(--font-mono); color: var(--ink); background: #16171b;
-    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
-  }
-  input:focus-visible, textarea:focus-visible, button:focus-visible {
-    outline: 2px solid var(--accent); outline-offset: 2px;
-  }
-
   #canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-  #canvas.dragging { cursor: grabbing; }
-
   #bar {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2147483001; /* above the editor's own panel */
     display: flex; align-items: center; gap: 10px; padding: 12px 16px;
     background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--line);
   }
-  #bundle-input { flex: 1 1 auto; min-width: 0; }
-  #load-status { flex: none; color: var(--ink-2); font: 12px/1.4 var(--font-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32vw; }
+  #bundle-input {
+    flex: 1 1 auto; min-width: 0;
+    font: 13px/1.4 var(--font-mono); color: var(--ink); background: #16171b;
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+  }
+  #bundle-input:focus-visible { outline: 2px solid #ff5252; outline-offset: 2px; }
+  #load-btn {
+    font: 600 13px/1 var(--font); color: var(--ink); cursor: pointer;
+    background: #1a1b20; border: 1px solid var(--line); border-radius: 7px; padding: 9px 14px;
+  }
+  #load-btn:hover { background: #232429; }
+  #load-status {
+    flex: none; color: var(--ink-2); font: 12px/1.4 var(--font-mono);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 32vw;
+  }
   #load-status.error { color: var(--err); }
-
-  /* #hud and #make-config-btn are laid out by their shared parent, not by their own
-     fixed offsets, so the two can never overlap: side by side on a wide screen,
-     stacked on a narrow one (see the breakpoint below), with no fixed height to
-     coordinate between them. */
-  #bottom-panel {
-    position: fixed; left: 16px; right: 16px; bottom: 16px; z-index: 2;
-    display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
-  }
-  #hud {
-    display: flex; flex-direction: column; gap: 10px;
-    background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-    border: 1px solid var(--line); border-radius: var(--radius);
-    padding: 14px; width: 260px; flex: none;
-  }
-  #readout {
-    margin: 0; font: 12px/1.7 var(--font-mono); color: var(--ink-2); white-space: pre;
-  }
-  #readout b { color: var(--ink); font-weight: 500; }
-  #transport { display: flex; flex-wrap: wrap; gap: 6px; }
-  #transport button { flex: 1 1 auto; }
-
-  #make-config-btn {
-    padding: 14px 20px; font-size: 14px; border-radius: var(--radius);
-    box-shadow: 0 12px 32px -12px rgba(255, 82, 82, 0.5);
-  }
-
-  dialog {
-    max-width: min(640px, calc(100vw - 48px)); width: 100%;
-    background: #101114; color: var(--ink); border: 1px solid var(--line);
-    border-radius: 14px; padding: 0; box-shadow: 0 40px 80px -30px rgba(0, 0, 0, 0.8);
-  }
-  dialog::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
-  .dialog-inner { padding: 22px 24px 24px; }
-  dialog h2 { margin: 0 0 4px; font: 700 18px/1.3 var(--font); letter-spacing: -0.01em; }
-  dialog p.sub { margin: 0 0 18px; color: var(--ink-2); font-size: 13px; line-height: 1.6; }
-  dialog .close-x {
-    position: absolute; top: 14px; right: 14px; padding: 6px 9px; font-size: 16px; line-height: 1;
-  }
-
-  #help dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; }
-  #help dt { font: 600 12px/1.5 var(--font-mono); color: var(--accent); white-space: nowrap; }
-  #help dd { margin: 0; color: var(--ink); font-size: 13.5px; line-height: 1.55; }
-  #help .note { margin: 18px 0 0; padding-top: 14px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 12.5px; line-height: 1.6; }
-  #help code { background: #1a1b20; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-
-  #config-out textarea {
-    width: 100%; height: 320px; resize: vertical; white-space: pre; overflow: auto;
-  }
-  #config-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-  #save-status { margin: 10px 0 0; font: 12px/1.4 var(--font-mono); color: var(--ink-2); min-height: 1.4em; }
-  #save-status.error { color: var(--err); }
-  #save-status.ok { color: var(--ok); }
-
   @media (max-width: 640px) {
     #bar { flex-wrap: wrap; }
     #load-status { max-width: 100%; }
-    #bottom-panel { flex-direction: column; align-items: stretch; }
-    #hud { width: 100%; }
   }
 </style>
 </head>
 <body>
-<canvas id="canvas" tabindex="0" aria-label="snap3d 번들 편집 뷰. 드래그로 회전, 휠로 확대, WASD로 축 이동."></canvas>
+<canvas id="canvas" tabindex="0" aria-label="snap3d 번들 편집 뷰"></canvas>
 
 <header id="bar">
   <input id="bundle-input" type="text" autocomplete="off" spellcheck="false"
-    placeholder=".snap3d 폴더 경로 또는 URL - 예: ../_site/bundle/clothes01.snap3d">
-  <button id="load-btn">불러오기</button>
+    placeholder=".snap3d 폴더 경로 또는 URL - 예: /snap3d-clothes/bundle/model_in_clothes.snap3d">
+  <button id="load-btn" type="button">불러오기</button>
   <span id="load-status" aria-live="polite"></span>
 </header>
 
-<div id="bottom-panel">
-  <div id="hud">
-    <pre id="readout">번들을 불러오세요.</pre>
-    <div id="transport">
-      <button id="play-btn" disabled>일시정지 (Space)</button>
-      <button id="reset-btn" disabled>리셋 (R)</button>
-      <button id="help-btn" type="button">사용법</button>
-    </div>
-  </div>
+<script src="../dist/viewer_editor.js"></script>
+<script>
+(() => {
+  const STORAGE_KEY = 'snap3d-editor:lastBundle';
+  const input = document.getElementById('bundle-input');
+  const status = document.getElementById('load-status');
+  const canvas = document.getElementById('canvas');
+  let viewer = null;
 
-  <button id="make-config-btn" class="primary" disabled>Config 파일 만들기</button>
-</div>
+  function setStatus(text, isError = false) {
+    status.textContent = text;
+    status.classList.toggle('error', isError);
+  }
 
-<dialog id="help">
-  <div class="dialog-inner">
-    <button class="close-x" data-close aria-label="닫기">✕</button>
-    <h2>사용법</h2>
-    <p class="sub">기존 <code>snap3d-viewer</code>와 렌더링은 완전히 같습니다. 이 페이지는 카메라 기본값을 고르기 위한 도구입니다.</p>
-    <dl>
-      <dt>드래그</dt><dd>시점 회전 (궤도)</dd>
-      <dt>휠 / 핀치</dt><dd>확대 · 축소</dd>
-      <dt>W A S D<br>또는 방향키</dt><dd>회전축(피벗) 이동 - 자동 회전 중에도 그대로 작동</dd>
-      <dt>Space</dt><dd>자동 회전 재생 / 일시정지</dd>
-      <dt>R</dt><dd>맨 처음 불러온 설정으로 되돌리기 (재생도 같이 멈춤)</dd>
-      <dt>Config 파일 만들기</dt><dd>지금 화면 그대로(피벗 위치, 확대, 각도)를 새 <code>initial_camera</code>로 넣은 config.json을 만듭니다. up_vector, SH, 텍스처 등 나머지 값은 그대로 유지됩니다 - 여긴 카메라만 바꿉니다.</dd>
-    </dl>
-    <p class="note">
-      만든 파일을 번들 폴더의 기존 <code>config.json</code>에 덮어쓰면, 그게 새 기본 시점이 됩니다 - 이후엔 평소 쓰던 뷰어를 그대로 쓰면 됩니다.<br><br>
-      <code>file://</code>로 열면 번들을 못 불러옵니다. <code>python3 -m http.server</code> 등으로 서빙한 주소로 여세요.
-    </p>
-  </div>
-</dialog>
+  function load(rawUrl) {
+    const url = rawUrl.trim().replace(/\/+$/, '');
+    if (!url) return;
+    setStatus('불러오는 중…');
+    const opts = {
+      onProgress: (loaded, total) => setStatus(`${(loaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB`),
+      onReady: () => {
+        setStatus('불러옴');
+        localStorage.setItem(STORAGE_KEY, url);
+        const u = new URL(location.href);
+        u.searchParams.set('bundle', url);
+        history.replaceState(null, '', u);
+      },
+      onError: (err) => setStatus(String(err?.message ?? err), true),
+    };
+    if (!viewer) {
+      viewer = new Snap3dViewer(canvas, url, opts);
+      window.viewer = viewer; // a console handle, same convention as the shipped pages
+    } else {
+      viewer.load(url).catch(() => {}); // onError above already reported it
+    }
+  }
 
-<dialog id="config-out">
-  <div class="dialog-inner">
-    <button class="close-x" data-close aria-label="닫기">✕</button>
-    <h2>새 config.json</h2>
-    <p class="sub">번들 폴더의 <code>config.json</code>을 이 내용으로 덮어쓰세요.</p>
-    <textarea id="config-text" readonly spellcheck="false"></textarea>
-    <div id="config-actions">
-      <button id="saveas-btn">파일로 저장…</button>
-      <button id="download-btn">다운로드</button>
-      <button id="copy-btn">복사</button>
-    </div>
-    <p id="save-status"></p>
-  </div>
-</dialog>
+  document.getElementById('load-btn').addEventListener('click', () => load(input.value));
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') load(input.value);
+  });
 
-<script src="../dist/viewer.js"></script>
-<script src="./app.js"></script>
+  const params = new URLSearchParams(location.search);
+  const initial = params.get('bundle') || localStorage.getItem(STORAGE_KEY) || '';
+  input.value = initial;
+  if (initial) load(initial);
+  else setStatus('불러올 번들 경로를 입력하세요');
+})();
+</script>
 </body>
 </html>
