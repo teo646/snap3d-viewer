@@ -143,11 +143,19 @@ export class Snap3dViewerEditor extends Snap3dViewer {
    * rather than assumed pipeline defaults, so a bundle built with non-default
    * `near_scale`/`far_scale` keeps its own proportions at the new radius.
    *
+   * Pauses the idle spin first: the object keeps turning while an operator zooms or
+   * pans (see the class comment), so without this, exporting mid-turn would write
+   * out - and measure `frame` against - whatever fleeting angle the spin happened to
+   * be at that instant rather than the pose actually being looked at, and a pose
+   * that clips `_measureFrame()` at one angle but not another makes that pose pick
+   * silently non-deterministic too.
+   *
    * @returns {object|null} a plain object ready for `JSON.stringify`, or null before
    *   the bundle has loaded
    */
   exportConfig() {
     if (!this.camera || !this.config) return null;
+    this.pause();
     const round = (n) => Math.round(n * 1e6) / 1e6; // trims float noise, keeps real precision
     const cam0 = this.config.initial_camera;
     // A malformed/hand-edited bundle missing near or far would otherwise divide
@@ -203,14 +211,17 @@ export class Snap3dViewerEditor extends Snap3dViewer {
 
   /**
    * `{fill, anchor}` as this canvas is actually composed right now: `fill` is how
-   * much of the canvas's own tighter dimension the rendered object occupies
-   * (`max(objW/canvasW, objH/canvasH)`, can read above 1 for a deliberately close
-   * crop), and `anchor` is where in the canvas - `[x, y]` fraction, 0..1, y from the
-   * top - the rotation axis (`rotation.center`) itself projects to. A consumer
-   * reproduces both on its own, differently-shaped box rather than reusing this
-   * canvas's absolute framing, which is the whole reason to write them out instead
-   * of just the camera pose - see snap3d-clothes/app.js's `applyFrame()` for the
-   * consumer side of this exact measurement.
+   * much of the canvas's own *height* the rendered object occupies
+   * (`objH/canvasH`, can read above 1 for a deliberately close crop), and `anchor`
+   * is where in the canvas - `[x, y]` fraction, 0..1, y from the top - the rotation
+   * axis (`rotation.center`) itself projects to. Height only, not
+   * `max(objW/canvasW, objH/canvasH)`: for a fixed vertical FOV, screen height as a
+   * fraction of canvas height depends only on radius and the object's own size,
+   * never on the canvas's width or aspect ratio, so it's the one measurement that
+   * means the same thing on a consumer's differently-shaped box as it does here -
+   * which is the whole reason to write these out instead of just the camera pose.
+   * See snap3d-clothes/app.js's `applyFrame()` for the consumer side of this exact
+   * measurement.
    *
    * @returns {{fill: number, anchor: [number, number]}|null} null if nothing is
    *   drawn (an empty canvas) or the axis is behind the camera - exportConfig()
@@ -222,9 +233,21 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const gl = this.gl;
     const { width, height } = this.canvas;
     if (!width || !height) return null;
+
+    // Alpha marks "the object" versus "nothing drawn" - true only against a
+    // transparent clear, and this class doesn't otherwise ask for one (its default
+    // background, like the base class's, is an opaque dark grey - see
+    // VIEWER_DEFAULTS). Rendering one throwaway frame with alpha 0 gives a reading
+    // uncoupled from whatever background a host page actually configured; the real
+    // background comes straight back on the next regular frame, since nothing else
+    // reads `this.options.background` in between.
+    const background = this.options.background;
+    this.options.background = [0, 0, 0, 0];
     this.renderFrame();
     const pixels = new Uint8Array(width * height * 4);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    this.options.background = background;
+    this.requestRender(); // queue a real frame back, since the throwaway one just drew
 
     let minX = width, maxX = -1, minY = height, maxY = -1;
     for (let y = 0; y < height; y++) {
@@ -238,6 +261,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       }
     }
     if (maxX < 0) return null; // nothing drawn
+    if (minY <= 0 || maxY >= height - 1) return null; // top/bottom clipped - unreliable
 
     const c = this.camera;
     const proj = multiply(
@@ -251,7 +275,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     if (cw <= 1e-6) return null; // the axis is behind the camera
 
     return {
-      fill: round(Math.max((maxX - minX) / width, (maxY - minY) / height)),
+      fill: round((maxY - minY) / height),
       anchor: [
         round(((cx / cw) * 0.5 + 0.5)),
         round(1 - ((cy / cw) * 0.5 + 0.5)), // top-down, matching app.js's box.y convention
@@ -523,10 +547,19 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     };
 
     els.makeBtn.addEventListener('click', () => {
+      // exportConfig() pauses and measures frame itself, but falls back silently if
+      // the current pose clips (see _measureFrame()) - measuring once more here,
+      // after that same pause, is what lets this button say so instead of quietly
+      // handing back a config whose zoom doesn't match what's on screen.
+      this.pause();
+      const measured = this._measureFrame();
       const cfg = this.exportConfig();
       if (!cfg) return;
       els.text.value = JSON.stringify(cfg, null, 2) + '\n';
-      setStatus('');
+      setStatus(
+        measured ? '' : 'This angle runs slightly past the edge, so zoom/position were saved as the default instead - zoom out a touch and try again for this pose’s own.',
+        measured ? '' : 'error',
+      );
       els.dialog.showModal();
     });
 
