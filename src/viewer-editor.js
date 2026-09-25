@@ -25,6 +25,13 @@ const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin d
 // arrow keys still work fine.
 const AXIS_KEYS = { KeyQ: -1, KeyE: 1 };
 
+// I moves the camera closer along the axis view, K farther - the wheel's own zoom, as
+// a held key. Up/down and left/right don't apply here the way they do for a WASD pan:
+// the axis line already *is* the up/down direction, and there's no meaningful
+// "sideways" for a distance-only control, so only this one opposed pair is bound.
+const ZOOM_KEYS = { KeyI: 1, KeyK: -1 };
+const ZOOM_TICKS_PER_SECOND = 3; // same units controls.zoom()/the wheel handler use
+
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
  * that one stops on *any* interaction, panning included (see OrbitControls'
@@ -53,6 +60,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._host = null;
     this._els = null;
     this._axisKeys = new Set(); // held subset of AXIS_KEYS, advanced in _tick()
+    this._zoomKeys = new Set(); // held subset of ZOOM_KEYS, advanced in _tick()
     this._axisCanvas = null;
     this._axisCtx = null;
 
@@ -68,19 +76,29 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         event.preventDefault();
         this._axisKeys.add(event.code);
       }
+      if (ZOOM_KEYS[event.code] !== undefined) {
+        event.preventDefault();
+        this._zoomKeys.add(event.code);
+      }
     };
-    this._onKeyup = (event) => this._axisKeys.delete(event.code);
+    this._onKeyup = (event) => {
+      this._axisKeys.delete(event.code);
+      this._zoomKeys.delete(event.code);
+    };
     // Bound to the canvas, not the window: a keydown only reaches a canvas-scoped
     // listener while the canvas itself has focus, which is exactly the condition
-    // under which Space (or Q/E) should mean "drive this viewer" rather than whatever
-    // it means elsewhere on the host page.
+    // under which Space (or Q/E/I/K) should mean "drive this viewer" rather than
+    // whatever it means elsewhere on the host page.
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
     this.canvas.addEventListener('wheel', this._onWheel, { passive: true });
     this.canvas.addEventListener('keydown', this._onKeydown);
     this.canvas.addEventListener('keyup', this._onKeyup);
-    // Q/E only pan while held, same as WASD; losing focus mid-hold must not leave one
-    // stuck "down" forever (mirrors OrbitControls' own blur handling for its keys).
-    this.canvas.addEventListener('blur', () => this._axisKeys.clear());
+    // Q/E/I/K only act while held, same as WASD; losing focus mid-hold must not leave
+    // one stuck "down" forever (mirrors OrbitControls' own blur handling for its keys).
+    this.canvas.addEventListener('blur', () => {
+      this._axisKeys.clear();
+      this._zoomKeys.clear();
+    });
 
     this._buildAxisLine();
     if (ui) this._buildUI();
@@ -184,6 +202,15 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.camera.origin = this.camera.origin.map((v, i) => v + sign * speed * this.camera.up[i]);
   }
 
+  /** I/K held: the same radius change a wheel tick makes, continuously. */
+  _applyZoomKeys(dt) {
+    if (!this._zoomKeys.size || !this.controls) return;
+    let sign = 0;
+    for (const key of this._zoomKeys) sign += ZOOM_KEYS[key];
+    if (!sign) return; // I and K both held: cancel out
+    this.controls.zoom(sign * ZOOM_TICKS_PER_SECOND * dt);
+  }
+
   _tick(now) {
     this._rafId = requestAnimationFrame(this._tick);
     const dt = this.camera && this._lastTick ? Math.min((now - this._lastTick) / 1000, 0.1) : 0;
@@ -193,6 +220,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     }
     if (this.camera && this._axisKeys.size) {
       this._panAxis(dt);
+      this.requestRender();
+    }
+    if (this.camera && this._zoomKeys.size) {
+      this._applyZoomKeys(dt);
       this.requestRender();
     }
     this._lastTick = now;
@@ -316,7 +347,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag orbit &middot; wheel zoom &middot; wasd/arrows pan &middot; q/e slide axis</p>
+          <p id="hint">drag orbit &middot; wheel/i/k zoom &middot; wasd/arrows pan &middot; q/e slide axis</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="reset" type="button">Reset (R)</button>
@@ -331,9 +362,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these. The dashed line is the rotation axis; the dot is the pivot it turns around.</p>
         <dl>
           <dt>Drag</dt><dd>orbit</dd>
-          <dt>Wheel / pinch</dt><dd>zoom</dd>
+          <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
           <dt>W A S D<br>or arrows</dt><dd>slide the pivot sideways / up-down <em>on screen</em> - keeps spinning through this one</dd>
           <dt>Q / E</dt><dd>slide the pivot down / up <em>along the axis itself</em> - also keeps spinning</dd>
+          <dt>I / K</dt><dd>closer / farther along the axis - the same move as wheel zoom, held instead of scrolled; also keeps spinning</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
           <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
