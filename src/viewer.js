@@ -15,7 +15,7 @@
 // continuously-clocked loop (benchmarks, video capture).
 
 import { loadBundle } from './bundle.js';
-import { multiply, perspective } from './mat4.js';
+import { lookAt, multiply, normalize, perspective, rotateAbout, rotatePointAbout } from './mat4.js';
 import { OrbitCamera } from './orbit-camera.js';
 import { OrbitControls } from './controls.js';
 import { createRenderer } from './renderer.js';
@@ -64,6 +64,14 @@ export class Snap3dViewer {
     this.camera = null;
     this.controls = null;
     this.warnings = [];
+    /** The turntable the idle spin turns the *object* on: `{center, axis}`, taken
+     *  from the bundle's own `rotation` block. Mutable - an editor can move the
+     *  centre and the next frame spins around the new one. */
+    this.rotation = null;
+    /** Degrees the object is currently turned about {@link Snap3dViewer#rotation}.
+     *  Not a camera property: the camera stays exactly where it is while this runs,
+     *  which is what keeps the axis itself still on screen. */
+    this.spin = 0;
 
     this._renderer = null;
     this._home = null;
@@ -209,11 +217,37 @@ export class Snap3dViewer {
     return this;
   }
 
-  /** Back to the home pose (R in the desktop viewer). */
+  /** Back to the home pose, with the object turned back to where the bundle left it
+   *  (R in the desktop viewer). */
   resetCamera() {
     const { home } = this;
+    this.spin = 0;
     if (home) this.setCamera(home);
     return this;
+  }
+
+  /**
+   * The camera as the current frame actually draws it: `{position, target, up}`.
+   *
+   * Turning the object by `spin` about `rotation` and leaving the camera alone
+   * renders identically to leaving the object alone and turning the camera the other
+   * way about the same axis, and the second is the one this pipeline can express - so
+   * that is what this returns. Points *on* the axis project the same either way
+   * (the axis is what the rotation fixes), which is why an overlay drawn through
+   * `rotation.center` holds still while the object turns.
+   */
+  renderPose() {
+    const { camera, rotation, spin } = this;
+    const position = [...camera.position];
+    const target = [...camera.origin];
+    const up = [...camera.up];
+    if (!rotation || !spin) return { position, target, up };
+    const angle = (-spin * Math.PI) / 180;
+    return {
+      position: rotatePointAbout(position, rotation.center, rotation.axis, angle),
+      target: rotatePointAbout(target, rotation.center, rotation.axis, angle),
+      up: rotateAbout(up, rotation.axis, angle),
+    };
   }
 
   /** Give the canvas keyboard focus, so WASD/R work without a click first. */
@@ -270,22 +304,24 @@ export class Snap3dViewer {
     for (const warning of this.warnings) this._warn(warning);
 
     const initial = this.config.initial_camera;
-    // `rotation` is the bundle's explicit pivot: a `center` and `axis` a turntable
-    // spin (or a drag) should actually revolve around, independent of
-    // `initial_camera.target` - which stays about framing the *first* shot, not
-    // necessarily the same point. Older bundles carry no `rotation` block, so both
-    // fall back to what `target`/`up_vector` always meant on their own.
+    // The bundle's own turntable, kept apart from the camera on purpose: `center` is
+    // what the object turns around, `initial_camera.target` is only what the opening
+    // shot is framed on, and the two are free to differ. A bundle written before the
+    // `rotation` block existed falls back to the pair that used to carry both jobs.
     const rotation = this.config.rotation;
-    const origin = rotation?.center ?? initial.target;
-    const up = rotation?.axis ?? this.config.up_vector;
+    this.rotation = {
+      center: [...(rotation?.center ?? initial.target)],
+      axis: normalize(rotation?.axis ?? this.config.up_vector),
+    };
+    this.spin = 0;
     this._home = {
       azimuth: initial.azimuth_deg,
       elevation: initial.elevation_deg,
       radius: initial.radius,
-      target: [...origin],
+      target: [...initial.target],
     };
     if (!this.camera) {
-      this.camera = new OrbitCamera(origin, initial.radius, up);
+      this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
       this.camera.azimuth = initial.azimuth_deg;
       this.camera.elevation = initial.elevation_deg;
       this._autoRotating = this.options.autoRotate;
@@ -324,14 +360,16 @@ export class Snap3dViewer {
     this.controls?.update(dt);
 
     // Idle spin, until OrbitControls' onInteract cuts it off for good on the first
-    // real drag/zoom/pan - see the wiring in _load(). Advancing azimuth here rather
-    // than through setCamera skips its onChange (which would double up with the
-    // requestRender this loop is already mid-tick of) and the pointer-capture clamps
-    // a drag goes through, neither of which a plain idle spin needs.
+    // real drag/zoom/pan - see the wiring in _load(). It turns the *object* on the
+    // bundle's turntable rather than flying the camera around it: the camera does not
+    // move, so the axis it spins about holds still on screen and the object is what
+    // goes round. (Orbiting the camera instead only looks the same while the camera
+    // happens to be aimed at that same axis, which is the one thing `rotation.center`
+    // exists to stop assuming.)
     if (this._autoRotating) {
-      this.camera.azimuth += this.options.autoRotateSpeed * dt;
-      this._dirty = true;
-    }
+      this.spin = (this.spin + this.options.autoRotateSpeed * dt) % 360; // sin/cos don't
+      this._dirty = true;                                                // care; a number
+    }                                                                    // read back does
 
     if (this._dirty || this.options.render === 'always') {
       this._dirty = false;
@@ -366,7 +404,8 @@ export class Snap3dViewer {
       camera.radius * 0.02,
       camera.radius * 20,
     );
-    this._renderer.draw(multiply(projection, camera.viewMatrix()), camera.position);
+    const pose = this.renderPose();
+    this._renderer.draw(multiply(projection, lookAt(pose.position, pose.target, pose.up)), pose.position);
 
     // Wait for an actual frame rather than hiding the poster the instant loading
     // finishes - hiding it in `_load()` would uncover one blank cleared frame before

@@ -49,6 +49,24 @@ export const cross = (a, b) => [
 ];
 export const length = (a) => Math.hypot(a[0], a[1], a[2]);
 
+/** Rodrigues: `v` turned `angle` radians about the unit vector `axis`, right-handed. */
+export function rotateAbout(v, axis, angle) {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  const d = dot(axis, v) * (1 - c);
+  const x = cross(axis, v);
+  return [
+    v[0] * c + x[0] * s + axis[0] * d,
+    v[1] * c + x[1] * s + axis[1] * d,
+    v[2] * c + x[2] * s + axis[2] * d,
+  ];
+}
+
+/** `point` turned `angle` radians about the line through `center` along unit `axis`. */
+export function rotatePointAbout(point, center, axis, angle) {
+  return add(center, rotateAbout(sub(point, center), axis, angle));
+}
+
 export function normalize(a, eps = 0) {
   return scale(a, 1 / (length(a) + eps));
 }

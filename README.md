@@ -49,6 +49,7 @@ and `url` points at a snap3d bundle.
 | `ready` | promise, resolves with the viewer once the bundle is on the GPU |
 | `meta` `warnings` `isReady` `textureBytes` | bundle metadata, load-time warnings, state, VRAM |
 | `camera` `controls` `home` | `OrbitCamera`, `OrbitControls`, the pose the bundle ships |
+| `rotation` `spin` `renderPose()` | the turntable `{center, axis}` the object turns on, how far it has turned (degrees), and the camera the current frame is drawn from with that turn folded in |
 | `setCamera({azimuth, elevation, radius, target})` `resetCamera()` | any subset, through the same clamps a drag uses |
 | `start()` `stop()` `requestRender()` `renderFrame()` | loop control, and drawing from your own loop |
 | `resize()` `focus()` `snapshot(type, quality)` | manual resize, keyboard focus, PNG data URL |
@@ -61,7 +62,9 @@ stays opaque either way), `controls` (`false`, or an `OrbitControls` config), `r
 URL shown over the canvas until the first frame draws — also takes a second, updated
 URL passed to `load(url, { poster })`), `autoRotate` / `autoRotateSpeed` (a slow idle
 spin, on by default at 16°/s, that stops for good on the visitor's first drag, zoom, or
-pan key), and the callbacks `onProgress` `onReady`
+pan key — it turns the *object* on the bundle's own turntable, `config.rotation`, and
+leaves the camera where it is, so the axis it spins about stays put on screen), and the
+callbacks `onProgress` `onReady`
 `onError` `onWarning` `onFrame`.
 
 The `<script>` build defines `Snap3dViewer` as the constructor itself, with the rest of
@@ -77,7 +80,10 @@ pipeline's export stage wrote in formats a browser already reads:
 ```
 my_run.snap3d/
   config.json   up_vector, sh{degree, coefficients, storage[, offset, scale]},
-                texture_resolution, height{range, num_steps}, initial_camera
+                texture_resolution, height{range, num_steps}, initial_camera,
+                rotation{center, axis} - the turntable the idle spin turns the object
+                on, separate from initial_camera.target, which only frames the opening
+                shot; a bundle without it spins about target/up_vector as before
   mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
   sh.ktx2       array, one layer per SH coefficient; a is padding. RGBA8 UNORM when
                 sh.storage is "unorm8" (coefficient = sh.offset[k][c] +

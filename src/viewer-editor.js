@@ -12,20 +12,19 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { lookAt, multiply, perspective, sub, normalize } from './mat4.js';
+import { dot, lookAt, multiply, perspective, sub, normalize } from './mat4.js';
+import { horizontalBasis } from './orbit-camera.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
 
-// WASD/arrows (see controls.js's own PAN_KEYS) move the camera's framing - the render
-// changes, same as a drag or a wheel tick would. I/J/K/L is the other control this
-// class adds, and it does the opposite on purpose: while held, it moves the axis -
-// the drawn line, and what exportConfig() writes as `target` - without moving the
-// camera at all, so the render stays exactly as it was while you place it. Letting go
-// of every I/J/K/L key folds that placement into the real pivot in one step (see
-// `_axisOffset` and its use in _tick()), so a spin - or the next drag - orbits
-// exactly the axis just placed, rather than the old pivot with the line drifting
-// past it as the camera turns. Each key moves it in camera-relative terms, so the
-// line visibly moves the way the letter suggests regardless of which way the view
+// WASD/arrows (see controls.js's own PAN_KEYS) move the camera - the render changes,
+// same as a drag or a wheel tick would. I/J/K/L moves the other thing entirely: the
+// turntable's own centre (`viewer.rotation.center`, drawn as the dashed line), which
+// no camera control touches and which nothing but these four keys ever moves. The
+// camera is not involved either way round - placing the axis leaves the render
+// exactly as it was, and the spin turns the object about wherever the axis now is,
+// with the line itself holding still. Each key moves it in camera-relative terms, so
+// the line moves the way the letter suggests regardless of which way the view
 // currently faces:
 //   I  away from the camera, along the view direction (the axis recedes)
 //   K  toward the camera, along the view direction (the axis approaches)
@@ -74,13 +73,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._host = null;
     this._els = null;
     this._axisMoveKeys = new Set(); // held subset of AXIS_MOVE_KEYS, advanced in _tick()
-    // Offset from camera.origin to where the axis is actually drawn (and to what
-    // exportConfig() writes as `target`) while I/J/K/L is held - not applied back to
-    // camera.origin until every one of those keys is up (see _tick()), so the render
-    // doesn't move *while placing* the axis, but a spin still orbits the axis exactly
-    // once you're done - not the old origin, with the line drifting past it as the
-    // camera turns. R zeroes it without folding it in, back to the shipped pivot.
-    this._axisOffset = [0, 0, 0];
     this._axisCanvas = null;
     this._axisCtx = null;
 
@@ -89,7 +81,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._onKeydown = (event) => {
       if (event.code === 'KeyR') {
         this.pause(); // OrbitControls' own listener does the reset itself
-        this._axisOffset = [0, 0, 0];
+        // ...but the axis is this class's to put back, and R means "as the bundle
+        // shipped it" for that too.
+        const shipped = this.config?.rotation?.center ?? this.config?.initial_camera.target;
+        if (shipped && this.rotation) this.rotation.center = [...shipped];
       }
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
@@ -159,17 +154,15 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const farScale = cam0.radius > 0 ? cam0.far / cam0.radius : 20;
 
     const c = this.camera;
-    // `target` is the axis, not the live camera.origin - it can differ by
-    // `_axisOffset` (I/J/K/L never touches the render, see _moveAxis). `position` is
-    // rebuilt by that same offset (radius/azimuth/elevation are unchanged - only the
-    // whole rig's location shifts, exactly as OrbitCamera's own position formula
-    // would given this new target with those unchanged), and `view_matrix` is
-    // recomputed from that shifted position rather than reused from c.viewMatrix(),
-    // since a translated eye changes lookAt's translation terms even when the
-    // direction it looks in doesn't.
-    const target = this._axisTarget();
-    const position = Array.from(c.position).map((v, i) => v + this._axisOffset[i]);
-    const flat = lookAt(position, target, c.up); // column-major Float32Array(16) - see src/mat4.js
+    // What the frame on screen is actually drawn from, spin folded in - a bundle
+    // reloads at spin 0, so the pose that reproduces what the operator is looking at
+    // is the spun one, not the camera's own untouched orbit values. Inverting
+    // OrbitCamera's position formula against that pose gives the orbit triple back
+    // (exact whenever the turntable's axis is the camera's up, which is every bundle
+    // the pipeline writes; a tilted axis would need an up this format can't carry).
+    const pose = this.renderPose();
+    const pose0 = this._orbitFromPose(pose);
+    const flat = lookAt(pose.position, pose.target, pose.up); // column-major - see src/mat4.js
     const view_matrix = [];
     for (let r = 0; r < 4; r++) {
       const row = [];
@@ -181,26 +174,41 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       ...this.config,
       initial_camera: {
         type: 'orbit',
-        target: target.map(round),
-        radius: round(c.radius),
-        azimuth_deg: round(c.azimuth),
-        elevation_deg: round(c.elevation),
-        position: position.map(round),
+        target: pose.target.map(round),
+        radius: round(pose0.radius),
+        azimuth_deg: round(pose0.azimuth),
+        elevation_deg: round(pose0.elevation),
+        position: pose.position.map(round),
         view_matrix,
         fov_deg: cam0.fov_deg,
-        near: round(c.radius * nearScale),
-        far: round(c.radius * farScale),
+        near: round(pose0.radius * nearScale),
+        far: round(pose0.radius * farScale),
       },
-      // The pivot itself, not just the first shot's framing - see viewer.js's own
-      // _load(), which now reads this (falling back to target/up_vector when a bundle
-      // carries no `rotation` block at all) for what a spin or a drag actually orbits
-      // around. `axis` is never touched by this class - only `center` moves, via I/J/
-      // K/L - so it's carried straight through from whatever the bundle shipped with.
+      // The turntable, which the camera block above says nothing about: `center` is
+      // wherever I/J/K/L has put the axis, `axis` is carried straight through - only
+      // the centre ever moves here. viewer.js's _load() reads both back (falling back
+      // to target/up_vector for a bundle with no `rotation` block at all).
       rotation: {
-        center: target.map(round),
-        axis: Array.from(c.up).map(round),
+        center: (this.rotation?.center ?? c.origin).map(round),
+        axis: (this.rotation?.axis ?? c.up).map(round),
       },
     };
+  }
+
+  /** The `{radius, azimuth, elevation}` an OrbitCamera with this `up` needs to sit at
+   *  `pose.position` looking at `pose.target` - the inverse of OrbitCamera's own
+   *  position getter, so a pose arrived at any other way can still be written out as
+   *  the orbit triple `initial_camera` stores. */
+  _orbitFromPose(pose) {
+    const offset = sub(pose.position, pose.target);
+    const radius = Math.hypot(offset[0], offset[1], offset[2]);
+    const up = this.camera.up;
+    const [right, forward] = horizontalBasis(up);
+    const d = radius > 1e-9 ? offset.map((v) => v / radius) : [0, 0, 0];
+    const vertical = dot(d, up);
+    const elevation = (Math.asin(Math.min(1, Math.max(-1, vertical))) * 180) / Math.PI;
+    const azimuth = (Math.atan2(dot(d, right), dot(d, forward)) * 180) / Math.PI;
+    return { radius, azimuth, elevation };
   }
 
   dispose() {
@@ -224,15 +232,16 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     return ((((deg + 180) % 360) + 360) % 360) - 180;
   }
 
-  /** I/J/K/L held: move `_axisOffset` in camera-relative directions - away/toward
+  /** I/J/K/L held: move `rotation.center` in camera-relative directions - away/toward
    *  along the view, left/right on screen - at the same speed a WASD pan moves the
    *  camera (`controls.options.panPerSecond`, scaled by the current radius so it
    *  feels the same regardless of how far zoomed in the view is). `view` and `right`
    *  are read fresh each call, the same vectors the axis line itself is projected
-   *  with, so held keys and the line agree on "away". This never touches `camera.
-   *  origin` - the axis moves, nothing about the render does. */
+   *  with, so held keys and the line agree on "away". Nothing about the camera is
+   *  touched, so the render doesn't stir while the axis is being placed; the next
+   *  spin simply turns the object about the new centre. */
   _moveAxis(dt) {
-    if (!this._axisMoveKeys.size) return;
+    if (!this._axisMoveKeys.size || !this.rotation) return;
     const speed = this.camera.radius * (this.controls?.options.panPerSecond ?? 1.2) * dt;
     const view = normalize(sub(this.camera.origin, this.camera.position));
     const [right] = this.camera.forwardAxes;
@@ -248,37 +257,23 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       dz += sign * v[2];
     }
     if (!dx && !dy && !dz) return; // e.g. I and K both held: cancel out
-    this._axisOffset = [
-      this._axisOffset[0] + dx * speed,
-      this._axisOffset[1] + dy * speed,
-      this._axisOffset[2] + dz * speed,
-    ];
-  }
-
-  /** Where the axis is actually drawn (and what exportConfig() writes as `target`):
-   *  the live pivot plus whatever I/J/K/L has accumulated in `_axisOffset`. */
-  _axisTarget() {
-    return this.camera.origin.map((v, i) => v + this._axisOffset[i]);
+    const c = this.rotation.center;
+    this.rotation.center = [c[0] + dx * speed, c[1] + dy * speed, c[2] + dz * speed];
   }
 
   _tick(now) {
     this._rafId = requestAnimationFrame(this._tick);
     const dt = this.camera && this._lastTick ? Math.min((now - this._lastTick) / 1000, 0.1) : 0;
     if (this.camera && this._playing) {
-      this.camera.azimuth = this._wrapDeg(this.camera.azimuth + ROTATE_SPEED * dt);
+      // The base class's own spin, driven from here instead of from its `autoRotate`
+      // so a WASD pan or an I/J/K/L move doesn't stop it (OrbitControls' onInteract
+      // makes no distinction; see the class comment).
+      this.spin = this._wrapDeg(this.spin + ROTATE_SPEED * dt);
       this.requestRender();
     }
     if (this.camera && this._axisMoveKeys.size) {
-      this._moveAxis(dt); // never touches the render - see _moveAxis, no requestRender() here
-    } else if (this.camera && (this._axisOffset[0] || this._axisOffset[1] || this._axisOffset[2])) {
-      // Every I/J/K/L is up: fold the preview offset into the real pivot now, so an
-      // idle spin (or a drag) orbits around exactly the line just placed, not around
-      // the old origin with the line drifting past it. This is the one moment the
-      // render *is* allowed to move - a single snap to the new framing, not the
-      // continuous drift a live edit would have caused.
-      this.camera.origin = this.camera.origin.map((v, i) => v + this._axisOffset[i]);
-      this._axisOffset = [0, 0, 0];
-      this.requestRender();
+      this._moveAxis(dt);
+      this.requestRender(); // the object turns about the new centre from here on
     }
     this._lastTick = now;
     this._updateReadout();
@@ -290,10 +285,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const c = this.camera;
     const p = (n) => n.toFixed(3).padStart(8);
     this._els.readout.textContent =
-      `axis    ${this._axisTarget().map(p).join(' ')}\n` +
+      `axis    ${(this.rotation?.center ?? c.origin).map(p).join(' ')}\n` +
+      `camera  ${c.origin.map(p).join(' ')}\n` +
       `radius  ${c.radius.toFixed(3)}\n` +
-      `azimuth ${c.azimuth.toFixed(1)}°\n` +
-      `elev    ${c.elevation.toFixed(1)}°`;
+      `azimuth ${c.azimuth.toFixed(1)}°  spin ${this.spin.toFixed(0)}°`;
   }
 
   /**
@@ -349,7 +344,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       c.radius * 0.02,
       c.radius * 20,
     );
-    const mvp = multiply(projection, c.viewMatrix());
+    // The pose the frame is actually drawn from, spin included - the axis is fixed by
+    // that spin, so drawing it this way puts the line exactly where the object turns
+    // around, and holds it there while the object goes round.
+    const pose = this.renderPose();
+    const mvp = multiply(projection, lookAt(pose.position, pose.target, pose.up));
 
     const toScreen = (x, y, z) => {
       const cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
@@ -359,10 +358,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       return [((cx / cw) * 0.5 + 0.5) * canvas.width, (1 - ((cy / cw) * 0.5 + 0.5)) * canvas.height, cw];
     };
 
-    const [ax, ay, az] = this._axisTarget(); // origin + I/J/K/L's offset, not origin itself
+    const [ax, ay, az] = this.rotation?.center ?? c.origin;
+    const dir = this.rotation?.axis ?? c.up;
     const half = c.radius * 1.3; // pokes past the object either end, not just to its edge
-    const top = toScreen(ax + c.up[0] * half, ay + c.up[1] * half, az + c.up[2] * half);
-    const bottom = toScreen(ax - c.up[0] * half, ay - c.up[1] * half, az - c.up[2] * half);
+    const top = toScreen(ax + dir[0] * half, ay + dir[1] * half, az + dir[2] * half);
+    const bottom = toScreen(ax - dir[0] * half, ay - dir[1] * half, az - dir[2] * half);
     const pivot = toScreen(ax, ay, az);
     if (!top || !bottom) return;
 
@@ -402,7 +402,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis, release to orbit it</p>
+          <p id="hint">drag/wheel/wasd/arrows move camera &middot; ijkl move rotation axis</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="reset" type="button">Reset (R)</button>
@@ -414,12 +414,12 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <dialog id="help-dialog">
         <button id="help-close" type="button" aria-label="Close">✕</button>
         <h2>Controls</h2>
-        <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these. The dashed line is the rotation axis; the dot is the pivot it turns around.</p>
+        <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these. The dashed line is the turntable the object spins on (<code>rotation.center</code> / <code>rotation.axis</code>): it stays put, the object goes round it. The camera is a separate thing entirely.</p>
         <dl>
           <dt>Drag</dt><dd>orbit</dd>
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
-          <dt>W A S D<br>or arrows</dt><dd>move the camera's framing - keeps spinning through this one</dd>
-          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - the render doesn't move while you hold one, only the dashed line; let go and the pivot snaps to it, so a spin (or the next drag) orbits exactly there</dd>
+          <dt>W A S D<br>or arrows</dt><dd>move the camera - keeps spinning through this one</dd>
+          <dt>I J K L</dt><dd>move the rotation axis: I away from you, K toward you, J left, L right. Only the dashed line moves - the camera and the object stay exactly where they are, and the object starts turning about wherever you leave it</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
           <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
