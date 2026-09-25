@@ -17,6 +17,10 @@
       "import": "./dist/viewer.mjs",
       "require": "./dist/viewer.cjs"
     },
+    "./editor": {
+      "import": "./dist/viewer_editor.mjs",
+      "require": "./dist/viewer_editor.cjs"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },

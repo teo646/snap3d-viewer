@@ -34,6 +34,12 @@ const TARGETS = [
   { entry: 'src/browser.js', outfile: 'dist/viewer.js', format: 'iife' },
   { entry: 'src/index.js', outfile: 'dist/viewer.mjs', format: 'esm' },
   { entry: 'src/index.js', outfile: 'dist/viewer.cjs', format: 'cjs' },
+  // Snap3dViewerEditor: src/index-editor.js is its own module entry, not folded into
+  // src/index.js above, so the shadow-DOM editor UI never rides along in the
+  // production dist/viewer.{js,mjs,cjs} a storefront actually ships.
+  { entry: 'src/browser-editor.js', outfile: 'dist/viewer_editor.js', format: 'iife' },
+  { entry: 'src/index-editor.js', outfile: 'dist/viewer_editor.mjs', format: 'esm' },
+  { entry: 'src/index-editor.js', outfile: 'dist/viewer_editor.cjs', format: 'cjs' },
 ];
 
 const common = {
