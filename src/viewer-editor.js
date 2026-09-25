@@ -19,7 +19,11 @@ const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin d
 // down (Q) / up (E) along the axis itself - deliberately not WASD, which already pans
 // in the *view's* own plane (see OrbitControls.forwardAxes) and would otherwise be
 // asked to mean two different things depending on where the camera currently looks.
-const AXIS_KEYS = { q: -1, e: 1 };
+// Keyed by event.code (the physical key), not event.key - see src/controls.js's own
+// PAN_KEYS for why: under a non-Latin input method a Q/E keypress's .key is not 'q'/
+// 'e' at all, so matching on .key silently breaks this for exactly the visitors whose
+// arrow keys still work fine.
+const AXIS_KEYS = { KeyQ: -1, KeyE: 1 };
 
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
@@ -55,18 +59,17 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._onPointerDown = () => this.pause();
     this._onWheel = () => this.pause();
     this._onKeydown = (event) => {
-      const key = event.key.toLowerCase();
-      if (key === 'r') this.pause(); // OrbitControls' own listener does the reset itself
+      if (event.code === 'KeyR') this.pause(); // OrbitControls' own listener does the reset itself
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
       }
-      if (AXIS_KEYS[key] !== undefined) {
+      if (AXIS_KEYS[event.code] !== undefined) {
         event.preventDefault();
-        this._axisKeys.add(key);
+        this._axisKeys.add(event.code);
       }
     };
-    this._onKeyup = (event) => this._axisKeys.delete(event.key.toLowerCase());
+    this._onKeyup = (event) => this._axisKeys.delete(event.code);
     // Bound to the canvas, not the window: a keydown only reaches a canvas-scoped
     // listener while the canvas itself has focus, which is exactly the condition
     // under which Space (or Q/E) should mean "drive this viewer" rather than whatever

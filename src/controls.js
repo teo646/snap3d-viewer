@@ -21,12 +21,17 @@ export const CONTROL_DEFAULTS = {
   elevationLimit: 89.9,
 };
 
-// key -> (index into camera.forwardAxes, sign). forwardAxes is (right, up).
+// event.code (the physical key, unaffected by layout or an active IME) -> (index into
+// camera.forwardAxes, sign). forwardAxes is (right, up). Keyed by .code rather than
+// .key: under a non-Latin input method (Korean, Japanese, ...) the *character* a W/A/S/
+// D/R keypress produces is not 'w'/'a'/'s'/'d'/'r', so matching on .key silently drops
+// every letter binding for exactly the visitors arrow-key equivalents keep working for
+// - .code still reports 'KeyW' etc. regardless.
 const PAN_KEYS = {
-  w: [1, 1], arrowup: [1, 1],
-  s: [1, -1], arrowdown: [1, -1],
-  a: [0, -1], arrowleft: [0, -1],
-  d: [0, 1], arrowright: [0, 1],
+  KeyW: [1, 1], ArrowUp: [1, 1],
+  KeyS: [1, -1], ArrowDown: [1, -1],
+  KeyA: [0, -1], ArrowLeft: [0, -1],
+  KeyD: [0, 1], ArrowRight: [0, 1],
 };
 
 export class OrbitControls {
@@ -184,15 +189,14 @@ export class OrbitControls {
     if (!el.hasAttribute('tabindex')) el.tabIndex = 0; // focusable, so keydown reaches it
     this._on(el, 'keydown', (event) => {
       if (!this.enabled) return;
-      const key = event.key.toLowerCase();
-      if (key === 'r') { this.onInteract(); this.reset(); }
-      if (!PAN_KEYS[key]) return;
+      if (event.code === 'KeyR') { this.onInteract(); this.reset(); }
+      if (!PAN_KEYS[event.code]) return;
       this.onInteract();
       event.preventDefault(); // arrows would scroll the host page
-      this._keys.add(key);
+      this._keys.add(event.code);
       this.onChange();
     });
-    this._on(el, 'keyup', (event) => this._keys.delete(event.key.toLowerCase()));
+    this._on(el, 'keyup', (event) => this._keys.delete(event.code));
     // Losing focus mid-drag would otherwise leave a key stuck down forever.
     this._on(el, 'blur', () => { this._keys.clear(); this._pointers.clear(); });
   }
