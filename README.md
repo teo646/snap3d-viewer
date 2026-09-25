@@ -60,7 +60,11 @@ behind the canvas show through wherever the bundle didn't draw — the surface i
 stays opaque either way), `controls` (`false`, or an `OrbitControls` config), `render`,
 `autoStart`, `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `poster` (an image
 URL shown over the canvas until the first frame draws — also takes a second, updated
-URL passed to `load(url, { poster })`), `autoRotate` / `autoRotateSpeed` (a slow idle
+URL passed to `load(url, { poster })`), `loadingIndicator` (a progress bar and MB
+counter over the canvas while the bundle downloads and decompresses, gone the instant
+the first frame draws; `true` for the built-in look, `false` to build your own off
+`onProgress`/`onError` instead, or `{ color }` to keep the built-in layout with your
+own accent colour), `autoRotate` / `autoRotateSpeed` (a slow idle
 spin, on by default at 16°/s, that stops for good on the visitor's first drag, zoom, or
 pan key — it swings the view around the bundle's own turntable, `config.rotation`,
 which is not the azimuth a drag moves: rotating about that line maps the line onto

@@ -34,6 +34,11 @@ export const VIEWER_DEFAULTS = {
   fov: null,           // degrees; null takes the bundle's initial_camera.fov_deg
   contextAttributes: null,
   poster: null,         // image URL to show over the canvas until the first frame draws
+  // A small progress bar + MB counter over the canvas while the bundle downloads and
+  // decompresses, gone the moment the first frame draws - true for the built-in look,
+  // false to build your own off onProgress/onError instead, or { color } to keep the
+  // built-in layout with your own accent colour (default '#3b82f6').
+  loadingIndicator: true,
   autoRotate: true,     // slow idle spin, until the visitor drags/zooms/pans it themselves
   autoRotateSpeed: 16,   // degrees per second
   onProgress: null,    // (loadedBytes, totalBytes)
@@ -95,14 +100,20 @@ export class Snap3dViewer {
     this._bindContextEvents();
     this._observeSize();
 
-    this._posterHost = null;
+    this._overlayHost = null;
     this._posterEl = null;
     this._posterPendingHide = false;
     if (this.options.poster) this._showPoster(this.options.poster);
 
+    this._loadingEl = null;
+    this._loadingBarEl = null;
+    this._loadingTextEl = null;
+    this._loadingPendingHide = false;
+    if (this.options.loadingIndicator) this._showLoadingIndicator();
+
     /** Resolves with this viewer once the bundle is on the GPU. */
     this.ready = this._load().catch((error) => {
-      this.options.onError?.(error);
+      this._reportError(error);
       throw error;
     });
   }
@@ -155,6 +166,7 @@ export class Snap3dViewer {
     this.url = String(url).replace(/\/+$/, '');
     if ('poster' in options) this.options.poster = options.poster;
     if (this.options.poster) this._showPoster(this.options.poster);
+    if (this.options.loadingIndicator) this._showLoadingIndicator();
     this._renderer?.dispose();
     this._renderer = null;
     this.controls?.dispose();
@@ -165,7 +177,7 @@ export class Snap3dViewer {
     this.warnings = [];
     this._home = null;
     this.ready = this._load().catch((error) => {
-      this.options.onError?.(error);
+      this._reportError(error);
       throw error;
     });
     return this.ready;
@@ -284,6 +296,7 @@ export class Snap3dViewer {
     this.controls?.dispose();
     this._resizeObserver?.disconnect();
     this._posterEl?.remove();
+    this._loadingEl?.remove();
     for (const off of this._unbind ?? []) off();
     this._unbind = [];
     this._renderer?.dispose();
@@ -303,7 +316,10 @@ export class Snap3dViewer {
     // nothing left holding a reference to dispose it. The loser bails here, before
     // touching any shared state or allocating GPU resources.
     const seq = ++this._loadSeq;
-    const bundle = await loadBundle(this.url, (loaded, total) => this.options.onProgress?.(loaded, total));
+    const bundle = await loadBundle(this.url, (loaded, total) => {
+      this._updateLoadingIndicator(loaded, total);
+      this.options.onProgress?.(loaded, total);
+    });
     if (this._disposed || seq !== this._loadSeq) return this;
 
     this.config = bundle.config;
@@ -418,23 +434,27 @@ export class Snap3dViewer {
     );
     this._renderer.draw(multiply(projection, camera.viewMatrix()), camera.position);
 
-    // Wait for an actual frame rather than hiding the poster the instant loading
-    // finishes - hiding it in `_load()` would uncover one blank cleared frame before
-    // the first real draw ever lands.
+    // Wait for an actual frame rather than hiding the poster/indicator the instant
+    // loading finishes - hiding either in `_load()` would uncover one blank cleared
+    // frame before the first real draw ever lands.
     if (this._posterPendingHide) {
       this._posterPendingHide = false;
       this._hidePoster();
+    }
+    if (this._loadingPendingHide) {
+      this._loadingPendingHide = false;
+      this._hideLoadingIndicator();
     }
   }
 
   /** Show `url` over the canvas, creating the overlay the first time it's needed. */
   _showPoster(url) {
     if (!this._posterEl) {
-      const host = this._ensurePosterHost();
+      const host = this._ensureOverlayHost();
       const img = document.createElement('img');
       img.alt = '';
       img.style.cssText =
-        'position:absolute; inset:0; width:100%; height:100%; object-fit:cover; ' +
+        'position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:2147483000; ' +
         'pointer-events:none; transition:opacity 0.4s ease;';
       host.appendChild(img);
       this._posterEl = img;
@@ -451,30 +471,97 @@ export class Snap3dViewer {
     img.style.opacity = '0';
   }
 
+  /** Show the built-in loading bar, creating it the first time it's needed - the
+   *  `loadingIndicator` counterpart to `_showPoster()`, same overlay host, same
+   *  "stays up until the first real frame draws" handling in `_draw()`. */
+  _showLoadingIndicator() {
+    const opt = this.options.loadingIndicator;
+    const color = (opt && typeof opt === 'object' && opt.color) || '#3b82f6';
+    if (!this._loadingEl) {
+      const host = this._ensureOverlayHost();
+      const el = document.createElement('div');
+      el.style.cssText =
+        'position:absolute; left:50%; bottom:16px; transform:translateX(-50%); z-index:2147483000; ' +
+        'display:flex; flex-direction:column; align-items:center; gap:8px; ' +
+        'padding:10px 16px; border-radius:10px; background:rgba(15,15,17,0.72); ' +
+        'backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); pointer-events:none; ' +
+        'transition:opacity 0.3s ease; font:12px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;';
+      const track = document.createElement('div');
+      track.style.cssText = 'width:140px; height:3px; border-radius:2px; background:rgba(255,255,255,0.2); overflow:hidden;';
+      const fill = document.createElement('div');
+      fill.style.cssText = 'width:0%; height:100%; transition:width 0.15s linear;';
+      track.appendChild(fill);
+      const text = document.createElement('div');
+      text.style.cssText = 'color:rgba(255,255,255,0.85); white-space:nowrap;';
+      el.append(track, text);
+      host.appendChild(el);
+      this._loadingEl = el;
+      this._loadingTrackEl = track;
+      this._loadingBarEl = fill;
+      this._loadingTextEl = text;
+    }
+    this._loadingTrackEl.style.display = '';
+    this._loadingBarEl.style.width = '0%';
+    this._loadingBarEl.style.background = color;
+    this._loadingTextEl.textContent = 'loading…';
+    this._loadingTextEl.style.color = '';
+    this._loadingEl.style.display = '';
+    this._loadingEl.style.opacity = '1';
+    this._loadingPendingHide = true;
+  }
+
+  _updateLoadingIndicator(loaded, total) {
+    if (!this._loadingBarEl) return;
+    this._loadingBarEl.style.width = `${total ? (loaded / total) * 100 : 0}%`;
+    this._loadingTextEl.textContent =
+      loaded < total ? `${(loaded / 1e6).toFixed(1)} / ${(total / 1e6).toFixed(1)} MB` : 'decompressing…';
+  }
+
+  _hideLoadingIndicator() {
+    if (!this._loadingEl) return;
+    this._loadingEl.style.opacity = '0';
+  }
+
+  /** Both error paths (construction, `load()`) go through here: the message replaces
+   *  the bar rather than the indicator just vanishing, since a load that never
+   *  finishes otherwise leaves no trace of why. */
+  _reportError(error) {
+    if (this._loadingEl) {
+      this._loadingPendingHide = false;
+      this._loadingTrackEl.style.display = 'none';
+      this._loadingTextEl.textContent = String(error?.message ?? error);
+      this._loadingTextEl.style.color = '#f87171';
+      this._loadingEl.style.display = '';
+      this._loadingEl.style.opacity = '1';
+    }
+    this.options.onError?.(error);
+  }
+
   /**
-   * The poster is a sibling `<img>`, not something drawn into the canvas - the canvas
-   * already has a WebGL context, and a 2D context can't share it. Absolute positioning
-   * needs a positioned ancestor: reuse the canvas's parent if it already is one (a page
-   * that built its own stage div, as this library's own demo does), otherwise wrap the
-   * canvas in a plain relative div so a bare `<canvas>` dropped into the page still
-   * gets a poster that lines up with it.
+   * Shared by the poster and the loading indicator: both are a sibling element, not
+   * something drawn into the canvas - the canvas already has a WebGL context, and a
+   * 2D context can't share it. Absolute positioning needs a positioned ancestor:
+   * reuse the canvas's parent if it already is one (a page that built its own stage
+   * div, as this library's own demo does), otherwise wrap the canvas in a plain
+   * relative div so a bare `<canvas>` dropped into the page still gets an overlay
+   * that lines up with it.
    */
-  _ensurePosterHost() {
-    if (this._posterHost) return this._posterHost;
+  _ensureOverlayHost() {
+    if (this._overlayHost) return this._overlayHost;
     const parent = this.canvas.parentNode;
     const positioned = ['relative', 'absolute', 'fixed', 'sticky'].includes(
       parent && getComputedStyle(parent).position,
     );
     if (positioned) {
-      this._posterHost = parent;
+      this._overlayHost = parent;
     } else {
       const host = document.createElement('div');
       host.style.cssText = 'position:relative;';
       parent.insertBefore(host, this.canvas);
       host.appendChild(this.canvas);
-      this._posterHost = host;
+      this._overlayHost = host;
     }
-    return this._posterHost;
+    return this._overlayHost;
   }
 
   _reportFps(now, dt) {
