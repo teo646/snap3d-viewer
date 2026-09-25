@@ -12,14 +12,17 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { multiply, perspective, sub, normalize } from './mat4.js';
+import { lookAt, multiply, perspective, sub, normalize } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
 
-// WASD/arrows (see controls.js's own PAN_KEYS) move the camera's framing. I/J/K/L is
-// the other control this class adds: it moves the axis itself - the pivot the drawn
-// line passes through - entirely in camera-relative terms, so the line visibly moves
-// the way the letter suggests regardless of which way the view currently faces:
+// WASD/arrows (see controls.js's own PAN_KEYS) move the camera's framing - the render
+// changes, same as a drag or a wheel tick would. I/J/K/L is the other control this
+// class adds, and it does the opposite on purpose: it moves the axis - the drawn
+// line, and what exportConfig() writes as `target` - without moving the camera at
+// all, so the render stays exactly as it was while you place it. See `_axisOffset`.
+// Each key moves it in camera-relative terms, so the line visibly moves the way the
+// letter suggests regardless of which way the view currently faces:
 //   I  away from the camera, along the view direction (the axis recedes)
 //   K  toward the camera, along the view direction (the axis approaches)
 //   J  left on screen
@@ -43,7 +46,8 @@ const AXIS_MOVE_KEYS = {
  * that one stops on *any* interaction, panning included (see OrbitControls'
  * `onInteract`), and a pan is exactly the interaction an operator repositioning the
  * pivot needs the spin to survive. So `autoRotate` is always off on the base class,
- * and a drag, a wheel tick or R - not a WASD pan - are watched for directly instead.
+ * and a drag, a wheel tick or R - not a WASD pan, nor an I/J/K/L axis move - are
+ * watched for directly instead.
  */
 export class Snap3dViewerEditor extends Snap3dViewer {
   /**
@@ -66,13 +70,21 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._host = null;
     this._els = null;
     this._axisMoveKeys = new Set(); // held subset of AXIS_MOVE_KEYS, advanced in _tick()
+    // Offset from camera.origin to where the axis is actually drawn (and to what
+    // exportConfig() writes as `target`) - never applied back to the camera. I/J/K/L
+    // only ever changes this, so nothing about the render moves when the axis does;
+    // R zeroes it, back to the axis sitting exactly on the shipped pivot.
+    this._axisOffset = [0, 0, 0];
     this._axisCanvas = null;
     this._axisCtx = null;
 
     this._onPointerDown = () => this.pause();
     this._onWheel = () => this.pause();
     this._onKeydown = (event) => {
-      if (event.code === 'KeyR') this.pause(); // OrbitControls' own listener does the reset itself
+      if (event.code === 'KeyR') {
+        this.pause(); // OrbitControls' own listener does the reset itself
+        this._axisOffset = [0, 0, 0];
+      }
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
@@ -141,7 +153,17 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const farScale = cam0.radius > 0 ? cam0.far / cam0.radius : 20;
 
     const c = this.camera;
-    const flat = c.viewMatrix(); // column-major Float32Array(16) - see src/mat4.js
+    // `target` is the axis, not the live camera.origin - it can differ by
+    // `_axisOffset` (I/J/K/L never touches the render, see _moveAxis). `position` is
+    // rebuilt by that same offset (radius/azimuth/elevation are unchanged - only the
+    // whole rig's location shifts, exactly as OrbitCamera's own position formula
+    // would given this new target with those unchanged), and `view_matrix` is
+    // recomputed from that shifted position rather than reused from c.viewMatrix(),
+    // since a translated eye changes lookAt's translation terms even when the
+    // direction it looks in doesn't.
+    const target = this._axisTarget();
+    const position = Array.from(c.position).map((v, i) => v + this._axisOffset[i]);
+    const flat = lookAt(position, target, c.up); // column-major Float32Array(16) - see src/mat4.js
     const view_matrix = [];
     for (let r = 0; r < 4; r++) {
       const row = [];
@@ -153,11 +175,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       ...this.config,
       initial_camera: {
         type: 'orbit',
-        target: c.origin.map(round),
+        target: target.map(round),
         radius: round(c.radius),
         azimuth_deg: round(c.azimuth),
         elevation_deg: round(c.elevation),
-        position: Array.from(c.position).map(round),
+        position: position.map(round),
         view_matrix,
         fov_deg: cam0.fov_deg,
         near: round(c.radius * nearScale),
@@ -187,12 +209,13 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     return ((((deg + 180) % 360) + 360) % 360) - 180;
   }
 
-  /** I/J/K/L held: move the pivot (and with it, the drawn axis) in camera-relative
-   *  directions - away/toward along the view, left/right on screen - at the same
-   *  speed a WASD pan moves it (`controls.options.panPerSecond`, scaled by the
-   *  current radius so it feels the same regardless of how far zoomed in the view
-   *  is). `view` and `right` are read fresh each call, the same vectors the axis
-   *  line itself is projected with, so held keys and the line agree on "away". */
+  /** I/J/K/L held: move `_axisOffset` in camera-relative directions - away/toward
+   *  along the view, left/right on screen - at the same speed a WASD pan moves the
+   *  camera (`controls.options.panPerSecond`, scaled by the current radius so it
+   *  feels the same regardless of how far zoomed in the view is). `view` and `right`
+   *  are read fresh each call, the same vectors the axis line itself is projected
+   *  with, so held keys and the line agree on "away". This never touches `camera.
+   *  origin` - the axis moves, nothing about the render does. */
   _moveAxis(dt) {
     if (!this._axisMoveKeys.size) return;
     const speed = this.camera.radius * (this.controls?.options.panPerSecond ?? 1.2) * dt;
@@ -210,11 +233,17 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       dz += sign * v[2];
     }
     if (!dx && !dy && !dz) return; // e.g. I and K both held: cancel out
-    this.camera.origin = [
-      this.camera.origin[0] + dx * speed,
-      this.camera.origin[1] + dy * speed,
-      this.camera.origin[2] + dz * speed,
+    this._axisOffset = [
+      this._axisOffset[0] + dx * speed,
+      this._axisOffset[1] + dy * speed,
+      this._axisOffset[2] + dz * speed,
     ];
+  }
+
+  /** Where the axis is actually drawn (and what exportConfig() writes as `target`):
+   *  the live pivot plus whatever I/J/K/L has accumulated in `_axisOffset`. */
+  _axisTarget() {
+    return this.camera.origin.map((v, i) => v + this._axisOffset[i]);
   }
 
   _tick(now) {
@@ -225,8 +254,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       this.requestRender();
     }
     if (this.camera && this._axisMoveKeys.size) {
-      this._moveAxis(dt);
-      this.requestRender();
+      this._moveAxis(dt); // never touches the render - see _moveAxis, no requestRender() here
     }
     this._lastTick = now;
     this._updateReadout();
@@ -238,7 +266,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const c = this.camera;
     const p = (n) => n.toFixed(3).padStart(8);
     this._els.readout.textContent =
-      `target  ${c.origin.map(p).join(' ')}\n` +
+      `axis    ${this._axisTarget().map(p).join(' ')}\n` +
       `radius  ${c.radius.toFixed(3)}\n` +
       `azimuth ${c.azimuth.toFixed(1)}°\n` +
       `elev    ${c.elevation.toFixed(1)}°`;
@@ -307,10 +335,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       return [((cx / cw) * 0.5 + 0.5) * canvas.width, (1 - ((cy / cw) * 0.5 + 0.5)) * canvas.height, cw];
     };
 
+    const [ax, ay, az] = this._axisTarget(); // origin + I/J/K/L's offset, not origin itself
     const half = c.radius * 1.3; // pokes past the object either end, not just to its edge
-    const top = toScreen(c.origin[0] + c.up[0] * half, c.origin[1] + c.up[1] * half, c.origin[2] + c.up[2] * half);
-    const bottom = toScreen(c.origin[0] - c.up[0] * half, c.origin[1] - c.up[1] * half, c.origin[2] - c.up[2] * half);
-    const pivot = toScreen(c.origin[0], c.origin[1], c.origin[2]);
+    const top = toScreen(ax + c.up[0] * half, ay + c.up[1] * half, az + c.up[2] * half);
+    const bottom = toScreen(ax - c.up[0] * half, ay - c.up[1] * half, az - c.up[2] * half);
+    const pivot = toScreen(ax, ay, az);
     if (!top || !bottom) return;
 
     ctx.strokeStyle = 'rgba(255, 82, 82, 0.85)';
@@ -349,7 +378,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis</p>
+          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis (render unaffected)</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="reset" type="button">Reset (R)</button>
@@ -366,7 +395,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
           <dt>Drag</dt><dd>orbit</dd>
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
           <dt>W A S D<br>or arrows</dt><dd>move the camera's framing - keeps spinning through this one</dd>
-          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - keeps spinning too</dd>
+          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - the render doesn't change while you do, only the dashed line; <strong>Make config file</strong> is what actually picks it up</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
           <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
