@@ -193,6 +193,69 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         center: (this.rotation?.center ?? c.origin).map(round),
         axis: (this.rotation?.axis ?? c.up).map(round),
       },
+      // How a consuming page should reproduce this framing on a box shaped
+      // differently than this canvas - see _measureFrame(). Falls back to the
+      // loaded config's own `frame` (or the shipped default) only if nothing could
+      // be read back (e.g. the canvas is 0x0 - hidden mid-export).
+      frame: this._measureFrame() ?? this.config.frame ?? { fill: 0.88, anchor: [0.5, 0.5] },
+    };
+  }
+
+  /**
+   * `{fill, anchor}` as this canvas is actually composed right now: `fill` is how
+   * much of the canvas's own tighter dimension the rendered object occupies
+   * (`max(objW/canvasW, objH/canvasH)`, can read above 1 for a deliberately close
+   * crop), and `anchor` is where in the canvas - `[x, y]` fraction, 0..1, y from the
+   * top - the rotation axis (`rotation.center`) itself projects to. A consumer
+   * reproduces both on its own, differently-shaped box rather than reusing this
+   * canvas's absolute framing, which is the whole reason to write them out instead
+   * of just the camera pose - see snap3d-clothes/app.js's `applyFrame()` for the
+   * consumer side of this exact measurement.
+   *
+   * @returns {{fill: number, anchor: [number, number]}|null} null if nothing is
+   *   drawn (an empty canvas) or the axis is behind the camera - exportConfig()
+   *   falls back to the loaded config's own value rather than write a broken one.
+   */
+  _measureFrame() {
+    if (!this.camera || !this.rotation) return null;
+    const round = (n) => Math.round(n * 1e4) / 1e4;
+    const gl = this.gl;
+    const { width, height } = this.canvas;
+    if (!width || !height) return null;
+    this.renderFrame();
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    let minX = width, maxX = -1, minY = height, maxY = -1;
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (pixels[(y * width + x) * 4 + 3] > 8) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return null; // nothing drawn
+
+    const c = this.camera;
+    const proj = multiply(
+      perspective(this.options.fov ?? this.config.initial_camera.fov_deg, width / height, c.radius * 0.02, c.radius * 20),
+      c.viewMatrix(),
+    );
+    const [ax, ay, az] = this.rotation.center;
+    const cx = proj[0] * ax + proj[4] * ay + proj[8] * az + proj[12];
+    const cy = proj[1] * ax + proj[5] * ay + proj[9] * az + proj[13];
+    const cw = proj[3] * ax + proj[7] * ay + proj[11] * az + proj[15];
+    if (cw <= 1e-6) return null; // the axis is behind the camera
+
+    return {
+      fill: round(Math.max((maxX - minX) / width, (maxY - minY) / height)),
+      anchor: [
+        round(((cx / cw) * 0.5 + 0.5)),
+        round(1 - ((cy / cw) * 0.5 + 0.5)), // top-down, matching app.js's box.y convention
+      ],
     };
   }
 
