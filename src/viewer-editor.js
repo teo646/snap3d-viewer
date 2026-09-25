@@ -12,25 +12,31 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { multiply, perspective } from './mat4.js';
+import { multiply, perspective, sub, normalize } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
 
-// down (Q) / up (E) along the axis itself - deliberately not WASD, which already pans
-// in the *view's* own plane (see OrbitControls.forwardAxes) and would otherwise be
-// asked to mean two different things depending on where the camera currently looks.
-// Keyed by event.code (the physical key), not event.key - see src/controls.js's own
-// PAN_KEYS for why: under a non-Latin input method a Q/E keypress's .key is not 'q'/
-// 'e' at all, so matching on .key silently breaks this for exactly the visitors whose
+// WASD/arrows (see controls.js's own PAN_KEYS) move the camera's framing. I/J/K/L is
+// the other control this class adds: it moves the axis itself - the pivot the drawn
+// line passes through - entirely in camera-relative terms, so the line visibly moves
+// the way the letter suggests regardless of which way the view currently faces:
+//   I  away from the camera, along the view direction (the axis recedes)
+//   K  toward the camera, along the view direction (the axis approaches)
+//   J  left on screen
+//   L  right on screen
+// 'view' and 'right' name which vector _moveAxis() computes each tick, not a fixed
+// world axis - both are read off the camera fresh every frame, the same way
+// OrbitCamera's own forwardAxes getter derives its right/up pair. Keyed by
+// event.code (the physical key), not event.key - see controls.js's own PAN_KEYS for
+// why: under a non-Latin input method an I/J/K/L keypress's .key is not 'i'/'j'/'k'/
+// 'l' at all, so matching on .key silently breaks this for exactly the visitors whose
 // arrow keys still work fine.
-const AXIS_KEYS = { KeyQ: -1, KeyE: 1 };
-
-// I moves the camera closer along the axis view, K farther - the wheel's own zoom, as
-// a held key. Up/down and left/right don't apply here the way they do for a WASD pan:
-// the axis line already *is* the up/down direction, and there's no meaningful
-// "sideways" for a distance-only control, so only this one opposed pair is bound.
-const ZOOM_KEYS = { KeyI: 1, KeyK: -1 };
-const ZOOM_TICKS_PER_SECOND = 3; // same units controls.zoom()/the wheel handler use
+const AXIS_MOVE_KEYS = {
+  KeyI: ['view', 1],
+  KeyK: ['view', -1],
+  KeyJ: ['right', -1],
+  KeyL: ['right', 1],
+};
 
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
@@ -59,8 +65,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._rafId = 0;
     this._host = null;
     this._els = null;
-    this._axisKeys = new Set(); // held subset of AXIS_KEYS, advanced in _tick()
-    this._zoomKeys = new Set(); // held subset of ZOOM_KEYS, advanced in _tick()
+    this._axisMoveKeys = new Set(); // held subset of AXIS_MOVE_KEYS, advanced in _tick()
     this._axisCanvas = null;
     this._axisCtx = null;
 
@@ -72,32 +77,24 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
       }
-      if (AXIS_KEYS[event.code] !== undefined) {
+      if (AXIS_MOVE_KEYS[event.code] !== undefined) {
         event.preventDefault();
-        this._axisKeys.add(event.code);
-      }
-      if (ZOOM_KEYS[event.code] !== undefined) {
-        event.preventDefault();
-        this._zoomKeys.add(event.code);
+        this._axisMoveKeys.add(event.code);
       }
     };
-    this._onKeyup = (event) => {
-      this._axisKeys.delete(event.code);
-      this._zoomKeys.delete(event.code);
-    };
+    this._onKeyup = (event) => this._axisMoveKeys.delete(event.code);
     // Bound to the canvas, not the window: a keydown only reaches a canvas-scoped
     // listener while the canvas itself has focus, which is exactly the condition
-    // under which Space (or Q/E/I/K) should mean "drive this viewer" rather than
+    // under which Space (or I/J/K/L) should mean "drive this viewer" rather than
     // whatever it means elsewhere on the host page.
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
     this.canvas.addEventListener('wheel', this._onWheel, { passive: true });
     this.canvas.addEventListener('keydown', this._onKeydown);
     this.canvas.addEventListener('keyup', this._onKeyup);
-    // Q/E/I/K only act while held, same as WASD; losing focus mid-hold must not leave
+    // I/J/K/L only act while held, same as WASD; losing focus mid-hold must not leave
     // one stuck "down" forever (mirrors OrbitControls' own blur handling for its keys).
     this.canvas.addEventListener('blur', () => {
-      this._axisKeys.clear();
-      this._zoomKeys.clear();
+      this._axisMoveKeys.clear();
     });
 
     this._buildAxisLine();
@@ -190,25 +187,34 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     return ((((deg + 180) % 360) + 360) % 360) - 180;
   }
 
-  /** Q/E held: slide the pivot along the axis itself, at the same speed a WASD pan
-   *  moves it (`controls.options.panPerSecond`, scaled by the current radius so it
-   *  feels the same regardless of how far zoomed in the view is). */
-  _panAxis(dt) {
-    if (!this._axisKeys.size) return;
+  /** I/J/K/L held: move the pivot (and with it, the drawn axis) in camera-relative
+   *  directions - away/toward along the view, left/right on screen - at the same
+   *  speed a WASD pan moves it (`controls.options.panPerSecond`, scaled by the
+   *  current radius so it feels the same regardless of how far zoomed in the view
+   *  is). `view` and `right` are read fresh each call, the same vectors the axis
+   *  line itself is projected with, so held keys and the line agree on "away". */
+  _moveAxis(dt) {
+    if (!this._axisMoveKeys.size) return;
     const speed = this.camera.radius * (this.controls?.options.panPerSecond ?? 1.2) * dt;
-    let sign = 0;
-    for (const key of this._axisKeys) sign += AXIS_KEYS[key];
-    if (!sign) return; // Q and E both held: cancel out
-    this.camera.origin = this.camera.origin.map((v, i) => v + sign * speed * this.camera.up[i]);
-  }
-
-  /** I/K held: the same radius change a wheel tick makes, continuously. */
-  _applyZoomKeys(dt) {
-    if (!this._zoomKeys.size || !this.controls) return;
-    let sign = 0;
-    for (const key of this._zoomKeys) sign += ZOOM_KEYS[key];
-    if (!sign) return; // I and K both held: cancel out
-    this.controls.zoom(sign * ZOOM_TICKS_PER_SECOND * dt);
+    const view = normalize(sub(this.camera.origin, this.camera.position));
+    const [right] = this.camera.forwardAxes;
+    const vectors = { view, right };
+    let dx = 0, dy = 0, dz = 0;
+    for (const code of this._axisMoveKeys) {
+      const entry = AXIS_MOVE_KEYS[code];
+      if (!entry) continue;
+      const [name, sign] = entry;
+      const v = vectors[name];
+      dx += sign * v[0];
+      dy += sign * v[1];
+      dz += sign * v[2];
+    }
+    if (!dx && !dy && !dz) return; // e.g. I and K both held: cancel out
+    this.camera.origin = [
+      this.camera.origin[0] + dx * speed,
+      this.camera.origin[1] + dy * speed,
+      this.camera.origin[2] + dz * speed,
+    ];
   }
 
   _tick(now) {
@@ -218,12 +224,8 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       this.camera.azimuth = this._wrapDeg(this.camera.azimuth + ROTATE_SPEED * dt);
       this.requestRender();
     }
-    if (this.camera && this._axisKeys.size) {
-      this._panAxis(dt);
-      this.requestRender();
-    }
-    if (this.camera && this._zoomKeys.size) {
-      this._applyZoomKeys(dt);
+    if (this.camera && this._axisMoveKeys.size) {
+      this._moveAxis(dt);
       this.requestRender();
     }
     this._lastTick = now;
@@ -263,7 +265,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
    *  perspective/view the renderer itself draws with (see Snap3dViewer's own
    *  `_draw()`) and draws the segment between them - the rotation axis, in the same
    *  place onscreen the render puts it, updated every tick so it tracks a drag, a
-   *  zoom, a WASD/Q/E pan and the idle spin alike. */
+   *  zoom, a WASD pan, an I/J/K/L axis move and the idle spin alike. */
   _updateAxisLine() {
     const canvas = this._axisCanvas;
     if (!canvas || !this.camera || !this.isReady) return;
@@ -347,7 +349,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag orbit &middot; wheel/i/k zoom &middot; wasd/arrows pan &middot; q/e slide axis</p>
+          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="reset" type="button">Reset (R)</button>
@@ -363,9 +365,8 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         <dl>
           <dt>Drag</dt><dd>orbit</dd>
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
-          <dt>W A S D<br>or arrows</dt><dd>slide the pivot sideways / up-down <em>on screen</em> - keeps spinning through this one</dd>
-          <dt>Q / E</dt><dd>slide the pivot down / up <em>along the axis itself</em> - also keeps spinning</dd>
-          <dt>I / K</dt><dd>closer / farther along the axis - the same move as wheel zoom, held instead of scrolled; also keeps spinning</dd>
+          <dt>W A S D<br>or arrows</dt><dd>move the camera's framing - keeps spinning through this one</dd>
+          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - keeps spinning too</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
           <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
