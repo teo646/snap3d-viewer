@@ -270,14 +270,22 @@ export class Snap3dViewer {
     for (const warning of this.warnings) this._warn(warning);
 
     const initial = this.config.initial_camera;
+    // `rotation` is the bundle's explicit pivot: a `center` and `axis` a turntable
+    // spin (or a drag) should actually revolve around, independent of
+    // `initial_camera.target` - which stays about framing the *first* shot, not
+    // necessarily the same point. Older bundles carry no `rotation` block, so both
+    // fall back to what `target`/`up_vector` always meant on their own.
+    const rotation = this.config.rotation;
+    const origin = rotation?.center ?? initial.target;
+    const up = rotation?.axis ?? this.config.up_vector;
     this._home = {
       azimuth: initial.azimuth_deg,
       elevation: initial.elevation_deg,
       radius: initial.radius,
-      target: [...initial.target],
+      target: [...origin],
     };
     if (!this.camera) {
-      this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
+      this.camera = new OrbitCamera(origin, initial.radius, up);
       this.camera.azimuth = initial.azimuth_deg;
       this.camera.elevation = initial.elevation_deg;
       this._autoRotating = this.options.autoRotate;

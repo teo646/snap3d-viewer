@@ -18,11 +18,15 @@ const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin d
 
 // WASD/arrows (see controls.js's own PAN_KEYS) move the camera's framing - the render
 // changes, same as a drag or a wheel tick would. I/J/K/L is the other control this
-// class adds, and it does the opposite on purpose: it moves the axis - the drawn
-// line, and what exportConfig() writes as `target` - without moving the camera at
-// all, so the render stays exactly as it was while you place it. See `_axisOffset`.
-// Each key moves it in camera-relative terms, so the line visibly moves the way the
-// letter suggests regardless of which way the view currently faces:
+// class adds, and it does the opposite on purpose: while held, it moves the axis -
+// the drawn line, and what exportConfig() writes as `target` - without moving the
+// camera at all, so the render stays exactly as it was while you place it. Letting go
+// of every I/J/K/L key folds that placement into the real pivot in one step (see
+// `_axisOffset` and its use in _tick()), so a spin - or the next drag - orbits
+// exactly the axis just placed, rather than the old pivot with the line drifting
+// past it as the camera turns. Each key moves it in camera-relative terms, so the
+// line visibly moves the way the letter suggests regardless of which way the view
+// currently faces:
 //   I  away from the camera, along the view direction (the axis recedes)
 //   K  toward the camera, along the view direction (the axis approaches)
 //   J  left on screen
@@ -71,9 +75,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._els = null;
     this._axisMoveKeys = new Set(); // held subset of AXIS_MOVE_KEYS, advanced in _tick()
     // Offset from camera.origin to where the axis is actually drawn (and to what
-    // exportConfig() writes as `target`) - never applied back to the camera. I/J/K/L
-    // only ever changes this, so nothing about the render moves when the axis does;
-    // R zeroes it, back to the axis sitting exactly on the shipped pivot.
+    // exportConfig() writes as `target`) while I/J/K/L is held - not applied back to
+    // camera.origin until every one of those keys is up (see _tick()), so the render
+    // doesn't move *while placing* the axis, but a spin still orbits the axis exactly
+    // once you're done - not the old origin, with the line drifting past it as the
+    // camera turns. R zeroes it without folding it in, back to the shipped pivot.
     this._axisOffset = [0, 0, 0];
     this._axisCanvas = null;
     this._axisCtx = null;
@@ -185,6 +191,15 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         near: round(c.radius * nearScale),
         far: round(c.radius * farScale),
       },
+      // The pivot itself, not just the first shot's framing - see viewer.js's own
+      // _load(), which now reads this (falling back to target/up_vector when a bundle
+      // carries no `rotation` block at all) for what a spin or a drag actually orbits
+      // around. `axis` is never touched by this class - only `center` moves, via I/J/
+      // K/L - so it's carried straight through from whatever the bundle shipped with.
+      rotation: {
+        center: target.map(round),
+        axis: Array.from(c.up).map(round),
+      },
     };
   }
 
@@ -255,6 +270,15 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     }
     if (this.camera && this._axisMoveKeys.size) {
       this._moveAxis(dt); // never touches the render - see _moveAxis, no requestRender() here
+    } else if (this.camera && (this._axisOffset[0] || this._axisOffset[1] || this._axisOffset[2])) {
+      // Every I/J/K/L is up: fold the preview offset into the real pivot now, so an
+      // idle spin (or a drag) orbits around exactly the line just placed, not around
+      // the old origin with the line drifting past it. This is the one moment the
+      // render *is* allowed to move - a single snap to the new framing, not the
+      // continuous drift a live edit would have caused.
+      this.camera.origin = this.camera.origin.map((v, i) => v + this._axisOffset[i]);
+      this._axisOffset = [0, 0, 0];
+      this.requestRender();
     }
     this._lastTick = now;
     this._updateReadout();
@@ -378,7 +402,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis (render unaffected)</p>
+          <p id="hint">drag/wheel move camera &middot; wasd/arrows pan &middot; ijkl move axis, release to orbit it</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="reset" type="button">Reset (R)</button>
@@ -395,7 +419,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
           <dt>Drag</dt><dd>orbit</dd>
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
           <dt>W A S D<br>or arrows</dt><dd>move the camera's framing - keeps spinning through this one</dd>
-          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - the render doesn't change while you do, only the dashed line; <strong>Make config file</strong> is what actually picks it up</dd>
+          <dt>I J K L</dt><dd>move the axis itself: I away from you, K toward you, J left, L right - the render doesn't move while you hold one, only the dashed line; let go and the pivot snaps to it, so a spin (or the next drag) orbits exactly there</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
           <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
