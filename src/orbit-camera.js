@@ -40,6 +40,24 @@ export class OrbitCamera {
     return add(this.origin, scale(d, this.radius));
   }
 
+  /**
+   * Put the camera at `position` looking at `target`, as the orbit triple that gets
+   * there: the inverse of the `position` getter above. `up` is left alone, so a pose
+   * that would need the camera rolled about its own view direction lands on the
+   * nearest one that doesn't - exact for every pose an orbit can reach, which is
+   * every pose this viewer produces.
+   */
+  setPose(position, target) {
+    this.origin = [...target];
+    const offset = sub(position, target);
+    this.radius = Math.hypot(offset[0], offset[1], offset[2]);
+    if (this.radius < 1e-9) return this;
+    const d = scale(offset, 1 / this.radius);
+    this.elevation = (Math.asin(Math.min(1, Math.max(-1, dot(d, this.up)))) * 180) / Math.PI;
+    this.azimuth = (Math.atan2(dot(d, this._right), dot(d, this._forward)) * 180) / Math.PI;
+    return this;
+  }
+
   /** (right, up) in the current view direction, for WASD panning. */
   get forwardAxes() {
     const viewDir = normalize(sub(this.origin, this.position), 1e-10);

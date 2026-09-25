@@ -49,7 +49,7 @@ and `url` points at a snap3d bundle.
 | `ready` | promise, resolves with the viewer once the bundle is on the GPU |
 | `meta` `warnings` `isReady` `textureBytes` | bundle metadata, load-time warnings, state, VRAM |
 | `camera` `controls` `home` | `OrbitCamera`, `OrbitControls`, the pose the bundle ships |
-| `rotation` `spin` `renderPose()` | the turntable `{center, axis}` the object turns on, how far it has turned (degrees), and the camera the current frame is drawn from with that turn folded in |
+| `rotation` `spin` `spinBy(deg)` | the turntable `{center, axis}` the view turns around, how far it has turned, and the step that turns it |
 | `setCamera({azimuth, elevation, radius, target})` `resetCamera()` | any subset, through the same clamps a drag uses |
 | `start()` `stop()` `requestRender()` `renderFrame()` | loop control, and drawing from your own loop |
 | `resize()` `focus()` `snapshot(type, quality)` | manual resize, keyboard focus, PNG data URL |
@@ -62,8 +62,9 @@ stays opaque either way), `controls` (`false`, or an `OrbitControls` config), `r
 URL shown over the canvas until the first frame draws — also takes a second, updated
 URL passed to `load(url, { poster })`), `autoRotate` / `autoRotateSpeed` (a slow idle
 spin, on by default at 16°/s, that stops for good on the visitor's first drag, zoom, or
-pan key — it turns the *object* on the bundle's own turntable, `config.rotation`, and
-leaves the camera where it is, so the axis it spins about stays put on screen), and the
+pan key — it swings the view around the bundle's own turntable, `config.rotation`,
+which is not the azimuth a drag moves: rotating about that line maps the line onto
+itself, so it sits still on screen while the object goes round it), and the
 callbacks `onProgress` `onReady`
 `onError` `onWarning` `onFrame`.
 

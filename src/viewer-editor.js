@@ -12,8 +12,7 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { dot, lookAt, multiply, perspective, sub, normalize } from './mat4.js';
-import { horizontalBasis } from './orbit-camera.js';
+import { lookAt, multiply, perspective, sub, normalize } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
 
@@ -80,11 +79,13 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._onWheel = () => this.pause();
     this._onKeydown = (event) => {
       if (event.code === 'KeyR') {
-        this.pause(); // OrbitControls' own listener does the reset itself
-        // ...but the axis is this class's to put back, and R means "as the bundle
-        // shipped it" for that too.
+        this.pause(); // OrbitControls' own listener restores the camera itself
+        // ...but it goes through the controls, not through resetCamera(), so the two
+        // things that live up here are ours to put back: the axis, and the turn
+        // counter the readout shows. R means "as the bundle shipped it" for both.
         const shipped = this.config?.rotation?.center ?? this.config?.initial_camera.target;
         if (shipped && this.rotation) this.rotation.center = [...shipped];
+        this.spin = 0;
       }
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
@@ -154,15 +155,13 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const farScale = cam0.radius > 0 ? cam0.far / cam0.radius : 20;
 
     const c = this.camera;
-    // What the frame on screen is actually drawn from, spin folded in - a bundle
-    // reloads at spin 0, so the pose that reproduces what the operator is looking at
-    // is the spun one, not the camera's own untouched orbit values. Inverting
-    // OrbitCamera's position formula against that pose gives the orbit triple back
-    // (exact whenever the turntable's axis is the camera's up, which is every bundle
-    // the pipeline writes; a tilted axis would need an up this format can't carry).
-    const pose = this.renderPose();
-    const pose0 = this._orbitFromPose(pose);
-    const flat = lookAt(pose.position, pose.target, pose.up); // column-major - see src/mat4.js
+    // Straight off the live camera - the spin is *in* it (spinBy swings the camera
+    // rather than transforming the object), so whatever is on screen right now is
+    // what these numbers reopen on. `view_matrix` is recomputed rather than reused
+    // for the same reason `position` is written out at all: a consumer that skips
+    // the orbit convention should still land on exactly this frame.
+    const position = Array.from(c.position);
+    const flat = lookAt(position, c.origin, c.up); // column-major - see src/mat4.js
     const view_matrix = [];
     for (let r = 0; r < 4; r++) {
       const row = [];
@@ -174,15 +173,15 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       ...this.config,
       initial_camera: {
         type: 'orbit',
-        target: pose.target.map(round),
-        radius: round(pose0.radius),
-        azimuth_deg: round(pose0.azimuth),
-        elevation_deg: round(pose0.elevation),
-        position: pose.position.map(round),
+        target: c.origin.map(round),
+        radius: round(c.radius),
+        azimuth_deg: round(c.azimuth),
+        elevation_deg: round(c.elevation),
+        position: position.map(round),
         view_matrix,
         fov_deg: cam0.fov_deg,
-        near: round(pose0.radius * nearScale),
-        far: round(pose0.radius * farScale),
+        near: round(c.radius * nearScale),
+        far: round(c.radius * farScale),
       },
       // The turntable, which the camera block above says nothing about: `center` is
       // wherever I/J/K/L has put the axis, `axis` is carried straight through - only
@@ -193,22 +192,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         axis: (this.rotation?.axis ?? c.up).map(round),
       },
     };
-  }
-
-  /** The `{radius, azimuth, elevation}` an OrbitCamera with this `up` needs to sit at
-   *  `pose.position` looking at `pose.target` - the inverse of OrbitCamera's own
-   *  position getter, so a pose arrived at any other way can still be written out as
-   *  the orbit triple `initial_camera` stores. */
-  _orbitFromPose(pose) {
-    const offset = sub(pose.position, pose.target);
-    const radius = Math.hypot(offset[0], offset[1], offset[2]);
-    const up = this.camera.up;
-    const [right, forward] = horizontalBasis(up);
-    const d = radius > 1e-9 ? offset.map((v) => v / radius) : [0, 0, 0];
-    const vertical = dot(d, up);
-    const elevation = (Math.asin(Math.min(1, Math.max(-1, vertical))) * 180) / Math.PI;
-    const azimuth = (Math.atan2(dot(d, right), dot(d, forward)) * 180) / Math.PI;
-    return { radius, azimuth, elevation };
   }
 
   dispose() {
@@ -225,12 +208,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
   }
 
   // -- internals --------------------------------------------------------------------
-
-  _wrapDeg(deg) {
-    // Keeps the number in [-180, 180) after an unbounded number of tick() increments;
-    // sin/cos don't care, but the readout and the exported config should stay tidy.
-    return ((((deg + 180) % 360) + 360) % 360) - 180;
-  }
 
   /** I/J/K/L held: move `rotation.center` in camera-relative directions - away/toward
    *  along the view, left/right on screen - at the same speed a WASD pan moves the
@@ -265,11 +242,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._rafId = requestAnimationFrame(this._tick);
     const dt = this.camera && this._lastTick ? Math.min((now - this._lastTick) / 1000, 0.1) : 0;
     if (this.camera && this._playing) {
-      // The base class's own spin, driven from here instead of from its `autoRotate`
-      // so a WASD pan or an I/J/K/L move doesn't stop it (OrbitControls' onInteract
-      // makes no distinction; see the class comment).
-      this.spin = this._wrapDeg(this.spin + ROTATE_SPEED * dt);
-      this.requestRender();
+      // The base class's own turntable step, driven from here instead of from its
+      // `autoRotate` so a WASD pan or an I/J/K/L move doesn't stop it (OrbitControls'
+      // onInteract makes no distinction; see the class comment).
+      this.spinBy(ROTATE_SPEED * dt);
     }
     if (this.camera && this._axisMoveKeys.size) {
       this._moveAxis(dt);
@@ -344,11 +320,11 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       c.radius * 0.02,
       c.radius * 20,
     );
-    // The pose the frame is actually drawn from, spin included - the axis is fixed by
-    // that spin, so drawing it this way puts the line exactly where the object turns
-    // around, and holds it there while the object goes round.
-    const pose = this.renderPose();
-    const mvp = multiply(projection, lookAt(pose.position, pose.target, pose.up));
+    // The same camera the frame is drawn with. The spin swings that camera around
+    // this very line, and a rotation about a line leaves the line where it was, so
+    // the projection below comes out identical frame after frame - the axis sits
+    // still and the object goes round it.
+    const mvp = multiply(projection, c.viewMatrix());
 
     const toScreen = (x, y, z) => {
       const cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
