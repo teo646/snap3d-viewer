@@ -182,6 +182,20 @@ export class OrbitControls {
     this._on(el, 'pointerup', endPointer);
     this._on(el, 'pointercancel', endPointer);
 
+    // Safari (and some other mobile engines) can still hand a touch to the page's
+    // own scroll or pinch-zoom instead of `el`, touch-action: none notwithstanding
+    // - reported as: horizontal drag orbits fine, vertical drag scrolls the page,
+    // pinch-out zooms the Safari tab instead of the camera, intermittently (a
+    // reload can make it behave). That's the browser's compositor thread deciding
+    // the gesture before any Pointer Event reaches this class, at which point no
+    // pointerdown/pointermove preventDefault() is late enough to undo it. Raw,
+    // non-passive Touch Events are the one thing that reliably cancels it, because
+    // touch-action was designed to be an optimization *for* this preventDefault,
+    // not a replacement of it - so it's still needed as the real fallback, not
+    // just as insurance alongside the Pointer Event calls above.
+    this._on(el, 'touchstart', (event) => { if (this.enabled) event.preventDefault(); }, { passive: false });
+    this._on(el, 'touchmove', (event) => { if (this.enabled) event.preventDefault(); }, { passive: false });
+
     this._on(el, 'wheel', (event) => {
       if (!this.enabled) return;
       this.onInteract();
