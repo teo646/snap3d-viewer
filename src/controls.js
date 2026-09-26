@@ -144,6 +144,10 @@ export class OrbitControls {
 
     this._on(el, 'pointerdown', (event) => {
       if (!this.enabled) return;
+      // Belt and suspenders alongside the CSS touch-action: none a host page is
+      // expected to set on `el` - cheap insurance against whatever mobile engine
+      // still tries to scroll/zoom the page from a touch that started here.
+      event.preventDefault();
       this.onInteract();
       el.setPointerCapture?.(event.pointerId);
       this._pointers.set(event.pointerId, event);
@@ -154,6 +158,7 @@ export class OrbitControls {
     this._on(el, 'pointermove', (event) => {
       const previous = this._pointers.get(event.pointerId);
       if (!previous || !this.enabled) return;
+      event.preventDefault();
       this._pointers.set(event.pointerId, event);
 
       if (this._pointers.size >= 2) {
