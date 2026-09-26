@@ -33,11 +33,12 @@ export const VIEWER_DEFAULTS = {
   loadingIndicator: true,
   // A host page's own controls sitting behind or under the canvas (the canvas is
   // deliberately bigger than its own box, say) still need to be reachable: with
-  // this on, a pointerdown over a transparent pixel - nothing drawn there - is
-  // forwarded to whatever's underneath instead of starting a drag, and only a
-  // pointerdown that actually lands on drawn geometry behaves like the viewer's
-  // own controls expect. Off by default because it changes hit-testing (a canvas
-  // with nothing behind it has no reason to pay for it).
+  // this on, a click over a transparent pixel - nothing drawn there - is
+  // forwarded to whatever's underneath instead of starting a drag, and a finger
+  // that starts one there scrolls the page instead of orbiting; only a gesture
+  // that actually lands on drawn geometry behaves like the viewer's own controls
+  // expect. Off by default because it changes hit-testing (a canvas with nothing
+  // behind it has no reason to pay for it).
   passthrough: false,
   autoRotate: true,     // slow idle spin, until the visitor drags/zooms/pans it themselves
   autoRotateSpeed: 25,   // degrees per second
@@ -509,39 +510,78 @@ export class Snap3dViewer {
   }
 
   /**
-   * `options.passthrough`: a pointerdown that lands on a transparent pixel - the
+   * `options.passthrough`: a gesture that starts on a transparent pixel - the
    * background, not the object - is handed to whatever sits under the canvas
-   * instead of starting a drag. Reads back the single pixel under the pointer
-   * (cheap: one redraw plus a 1x1 readPixels, not a per-frame cost - this runs
-   * once per gesture, on pointerdown alone) and, when it's empty, briefly turns
-   * off the canvas's own hit-testing so `elementFromPoint` finds what's really
-   * there, then clicks it directly rather than trying to redispatch the original
-   * event.
+   * instead of starting a drag: a tap clicks it, and on touch, a drag left there
+   * scrolls the page instead of orbiting (a finger that starts on the object
+   * still orbits, exactly as without this option). `touch-action` normally makes
+   * that call for the whole element before any JS runs, but it can't vary by
+   * pixel, so this puts canvas.style.touchAction to 'auto' and does the
+   * background/object split itself, per touch, from a 1x1 readPixels under the
+   * first contact point (cheap: one redraw plus that readback, once per gesture,
+   * not a per-frame cost) - background touches get `stopImmediatePropagation()`
+   * so `this.controls`' own listeners for the same events never see them (it
+   * binds the same events on the same element, and same-element listener order
+   * is registration order regardless of capture), which is what leaves the
+   * browser's default touch handling as the only thing still reacting.
    */
   _bindPassthrough() {
-    const onPointerDown = (event) => {
-      if (!this._renderer || !this.camera) return; // nothing drawn yet
+    this.canvas.style.touchAction = 'auto';
+    const passthroughTouches = new Set(); // touch identifiers currently left to the browser
+
+    const isBackground = (clientX, clientY) => {
+      if (!this._renderer || !this.camera) return false; // nothing drawn yet - the viewer owns it
       const rect = this.canvas.getBoundingClientRect();
       const s = this.canvas.width / rect.width;
-      const x = Math.round((event.clientX - rect.left) * s);
-      const y = Math.round((rect.bottom - event.clientY) * s); // readPixels is bottom-up
-      if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return;
-
+      const x = Math.round((clientX - rect.left) * s);
+      const y = Math.round((rect.bottom - clientY) * s); // readPixels is bottom-up
+      if (x < 0 || y < 0 || x >= this.canvas.width || y >= this.canvas.height) return false;
       // The drawing buffer isn't preserved between frames, so whatever the last
       // rAF drew may already be gone by the time this readback runs; redraw the
       // current pose first so it always reads the frame actually on screen.
       this._draw();
       const pixel = new Uint8Array(4);
       this.gl.readPixels(x, y, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixel);
-      if (pixel[3] > 8) return; // landed on the object - the viewer's own controls take it
+      return pixel[3] <= 8;
+    };
 
-      event.stopImmediatePropagation(); // this.controls binds the same event on the same element
+    const onPointerDown = (event) => {
+      if (!isBackground(event.clientX, event.clientY)) return; // the object - controls take it
+      event.stopImmediatePropagation();
       this.canvas.style.pointerEvents = 'none';
       const under = document.elementFromPoint(event.clientX, event.clientY);
       this.canvas.style.pointerEvents = '';
       under?.closest('a, button, label, input, select, textarea, [role="button"]')?.click();
     };
+
+    // Pointer Events cover the click above for touch and mouse alike, but only
+    // Touch Events carry the browser's own scroll/pinch-zoom gesture - blocking
+    // that only for touches this class doesn't claim is the other half of this.
+    const allBackground = (touchList) => [...touchList].every((t) => passthroughTouches.has(t.identifier));
+    const onTouchStart = (event) => {
+      for (const t of event.changedTouches) {
+        if (isBackground(t.clientX, t.clientY)) passthroughTouches.add(t.identifier);
+      }
+      if (allBackground(event.touches)) event.stopImmediatePropagation();
+    };
+    const onTouchMove = (event) => {
+      if (allBackground(event.touches)) event.stopImmediatePropagation();
+    };
+    const onTouchEnd = (event) => {
+      for (const t of event.changedTouches) passthroughTouches.delete(t.identifier);
+    };
+
     this.canvas.addEventListener('pointerdown', onPointerDown, { capture: true });
-    this._unbind.push(() => this.canvas.removeEventListener('pointerdown', onPointerDown, { capture: true }));
+    this.canvas.addEventListener('touchstart', onTouchStart, { capture: true, passive: false });
+    this.canvas.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+    this.canvas.addEventListener('touchend', onTouchEnd, { capture: true });
+    this.canvas.addEventListener('touchcancel', onTouchEnd, { capture: true });
+    this._unbind.push(
+      () => this.canvas.removeEventListener('pointerdown', onPointerDown, { capture: true }),
+      () => this.canvas.removeEventListener('touchstart', onTouchStart, { capture: true, passive: false }),
+      () => this.canvas.removeEventListener('touchmove', onTouchMove, { capture: true, passive: false }),
+      () => this.canvas.removeEventListener('touchend', onTouchEnd, { capture: true }),
+      () => this.canvas.removeEventListener('touchcancel', onTouchEnd, { capture: true }),
+    );
   }
 }
