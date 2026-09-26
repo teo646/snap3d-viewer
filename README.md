@@ -19,8 +19,8 @@ changes as you move around it.
 </script>
 ```
 
-That is the whole integration. Drag to orbit, wheel to zoom, WASD or the arrows to pan,
-`R` to reset. As a module instead:
+That is the whole integration. Drag to orbit, wheel to zoom, WASD or the arrows to pan.
+As a module instead:
 
 ```js
 import { Snap3dViewer } from 'https://teo646.github.io/snap3d-viewer/dist/viewer.mjs';
@@ -37,7 +37,7 @@ served as it stands.
 The loop is demand-driven: rAF runs while something is changing — a drag, a held key, a
 resize, an explicit `requestRender()` — and stops when the image settles, because a
 viewer embedded in someone else's page has no business burning a phone's battery on a
-still frame. Pass `{ render: 'always' }` for a continuously clocked loop.
+still frame.
 
 ### API
 
@@ -48,29 +48,31 @@ and `url` points at a snap3d bundle.
 |---|---|
 | `ready` | promise, resolves with the viewer once the bundle is on the GPU |
 | `meta` `warnings` `isReady` `textureBytes` | bundle metadata, load-time warnings, state, VRAM |
-| `camera` `controls` `home` | `OrbitCamera`, `OrbitControls`, the pose the bundle ships |
-| `rotation` `spin` `spinBy(deg)` | the turntable `{center, axis}` the view turns around, how far it has turned, and the step that turns it |
-| `setCamera({azimuth, elevation, radius, target})` `resetCamera()` | any subset, through the same clamps a drag uses |
+| `camera` `controls` | `OrbitCamera`, `OrbitControls` |
+| `rotation` `spin` `spinBy(deg)` | the turntable `{center, axis}` the view turns around right now, how far it has turned, and the step that turns it |
+| `setCamera({azimuth, elevation, radius, target})` | any subset, through the same clamps a drag uses |
 | `start()` `stop()` `requestRender()` `renderFrame()` | loop control, and drawing from your own loop |
-| `resize()` `focus()` `snapshot(type, quality)` | manual resize, keyboard focus, PNG data URL |
+| `resize()` `focus()` | manual resize, keyboard focus |
 | `dispose()` | releases the GL objects, the listeners and the loop |
 
-Options: `background` (`[r, g, b]`, 0–1; a 4th alpha component, default 1, lets the page
-behind the canvas show through wherever the bundle didn't draw — the surface itself
-stays opaque either way), `controls` (`false`, or an `OrbitControls` config), `render`,
-`autoStart`, `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `poster` (an image
-URL shown over the canvas until the first frame draws — also takes a second, updated
-URL passed to `load(url, { poster })`), `loadingIndicator` (a progress bar and MB
-counter over the canvas while the bundle downloads and decompresses, gone the instant
-the first frame draws; `true` for the built-in look, `false` to build your own off
-`onProgress`/`onError` instead, or `{ color }` to keep the built-in layout with your
+`rotation` is not stored: `center` is always wherever the camera is currently aimed
+(`camera.origin`), `axis` is always the bundle's own `up_vector`. A pan moves the centre
+along with it, and since the point a camera looks straight at always lands at the exact
+centre of the canvas, the turntable sits there too, automatically, on any box shape.
+
+Options: `controls` (`false`, or an `OrbitControls` config), `autoStart`,
+`maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `loadingIndicator` (a progress
+bar and MB counter over the canvas while the bundle downloads and decompresses, gone the
+instant the first frame draws; `true` for the built-in look, `false` to build your own
+off `onProgress`/`onError` instead, or `{ color }` to keep the built-in layout with your
 own accent colour), `autoRotate` / `autoRotateSpeed` (a slow idle
 spin, on by default at 16°/s, that stops for good on the visitor's first drag, zoom, or
-pan key — it swings the view around the bundle's own turntable, `config.rotation`,
-which is not the azimuth a drag moves: rotating about that line maps the line onto
-itself, so it sits still on screen while the object goes round it), and the
-callbacks `onProgress` `onReady`
-`onError` `onWarning` `onFrame`.
+pan key), and the callbacks `onProgress` `onReady`
+`onError` `onWarning`. The background is always transparent, so the canvas draws over
+whatever the host page already has behind it. `initial_camera`'s radius and target apply
+exactly as authored, on any canvas: there is no separate fitting step, so a box shaped
+differently than the one the pose was composed against simply crops differently at the
+edges rather than being reflowed to match.
 
 The `<script>` build defines `Snap3dViewer` as the constructor itself, with the rest of
 the module surface on it as statics — `Snap3dViewer.OrbitControls`,
@@ -85,10 +87,7 @@ pipeline's export stage wrote in formats a browser already reads:
 ```
 my_run.snap3d/
   config.json   up_vector, sh{degree, coefficients, storage[, offset, scale]},
-                texture_resolution, height{range, num_steps}, initial_camera,
-                rotation{center, axis} - the turntable the idle spin turns the object
-                on, separate from initial_camera.target, which only frames the opening
-                shot; a bundle without it spins about target/up_vector as before
+                texture_resolution, height{range, num_steps}, initial_camera
   mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
   sh.ktx2       array, one layer per SH coefficient; a is padding. RGBA8 UNORM when
                 sh.storage is "unorm8" (coefficient = sh.offset[k][c] +

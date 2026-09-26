@@ -7,12 +7,11 @@
 // two KTX2 textures, in a `<run_id>.snap3d` folder) and renders it exactly as
 // viewers/view_bundle.py does.
 //
-// The loop is demand-driven by default. The desktop original spins at a fixed 60 Hz
-// because it owns the machine; a viewer embedded in someone's page does not, and a
-// still frame costs the same to hold as to leave alone. So rAF runs only while
-// something is actually changing - a drag, a held key, a resize, an explicit
-// requestRender() - and stops when the image settles. Pass `render: 'always'` for a
-// continuously-clocked loop (benchmarks, video capture).
+// The loop is demand-driven. The desktop original spins at a fixed 60 Hz because it
+// owns the machine; a viewer embedded in someone's page does not, and a still frame
+// costs the same to hold as to leave alone. So rAF runs only while something is
+// actually changing - a drag, a held key, a resize, an explicit requestRender() - and
+// stops when the image settles.
 
 import { loadBundle } from './bundle.js';
 import { multiply, normalize, perspective, rotatePointAbout } from './mat4.js';
@@ -21,31 +20,23 @@ import { OrbitControls } from './controls.js';
 import { createRenderer } from './renderer.js';
 
 export const VIEWER_DEFAULTS = {
-  background: [0.05, 0.05, 0.06], // view_bundle.py's BACKGROUND; a 4th alpha component
-                                   // (default 1) lets the page behind the canvas show
-                                   // through instead - the canvas's own WebGL context
-                                   // already carries an alpha channel, so [r, g, b, 0]
-                                   // is all a fully transparent stage takes.
   controls: true,      // false, or an options object forwarded to OrbitControls
-  render: 'demand',    // 'demand' | 'always'
   autoStart: true,
   maxPixelRatio: 2,    // 3x on a phone is all cost and no visible gain
   antialias: true,
   fov: null,           // degrees; null takes the bundle's initial_camera.fov_deg
   contextAttributes: null,
-  poster: null,         // image URL to show over the canvas until the first frame draws
   // A small progress bar + MB counter over the canvas while the bundle downloads and
   // decompresses, gone the moment the first frame draws - true for the built-in look,
   // false to build your own off onProgress/onError instead, or { color } to keep the
   // built-in layout with your own accent colour (default '#3b82f6').
   loadingIndicator: true,
   autoRotate: true,     // slow idle spin, until the visitor drags/zooms/pans it themselves
-  autoRotateSpeed: 16,   // degrees per second
+  autoRotateSpeed: 25,   // degrees per second
   onProgress: null,    // (loadedBytes, totalBytes)
   onReady: null,       // (viewer)
   onError: null,       // (error)
   onWarning: null,     // (message)
-  onFrame: null,       // ({fps, dt})
 };
 
 const WEBGL2_MISSING =
@@ -69,24 +60,17 @@ export class Snap3dViewer {
     this.camera = null;
     this.controls = null;
     this.warnings = [];
-    /** The turntable the idle spin turns the *object* on: `{center, axis}`, taken
-     *  from the bundle's own `rotation` block. Mutable - an editor can move the
-     *  centre and the next frame spins around the new one. */
-    this.rotation = null;
     /** Degrees the view has turned about {@link Snap3dViewer#rotation} so far, for
      *  anyone who wants to read it back. `spinBy()` is what moves it. */
     this.spin = 0;
 
     this._renderer = null;
-    this._home = null;
     this._raf = 0;
     this._dirty = true;
     this._running = this.options.autoStart;
     this._disposed = false;
     this._loadSeq = 0; // bumped on every _load() so an overlapping one can tell it lost
     this._last = 0;
-    this._frames = 0;
-    this._fpsAt = 0;
     this._autoRotating = false;
     this._frame = this._frame.bind(this);
 
@@ -101,9 +85,6 @@ export class Snap3dViewer {
     this._observeSize();
 
     this._overlayHost = null;
-    this._posterEl = null;
-    this._posterPendingHide = false;
-    if (this.options.poster) this._showPoster(this.options.poster);
 
     this._loadingEl = null;
     this._loadingBarEl = null;
@@ -120,6 +101,19 @@ export class Snap3dViewer {
 
   get isReady() {
     return this._renderer !== null;
+  }
+
+  /**
+   * The turntable the idle spin turns the *object* on, right now: a line through
+   * wherever the camera is currently aimed (`camera.origin`), pointing along the
+   * bundle's own `up_vector`. Not stored - a pan moves `camera.origin`, and the
+   * axis simply follows it, which is also what keeps it sitting at the exact
+   * centre of the screen: `origin` is by definition the point the camera looks
+   * straight at, so it always projects there.
+   */
+  get rotation() {
+    if (!this.camera || !this.config) return null;
+    return { center: this.camera.origin, axis: normalize(this.config.up_vector) };
   }
 
   /** Bytes of GPU atlas this bundle occupies - the number that decides mobile fit.
@@ -159,13 +153,11 @@ export class Snap3dViewer {
    * and the camera re-derived from the new bundle - a different `up_vector` and a
    * different opening pose are exactly what a second bundle brings.
    *
-   * @param {object} [options]  currently just `poster`, shown again for the new bundle
+   * @param {object} [options]  
    * @returns {Promise<Snap3dViewer>} the same promise shape as `ready`
    */
-  load(url, options = {}) {
+  load(url) {
     this.url = String(url).replace(/\/+$/, '');
-    if ('poster' in options) this.options.poster = options.poster;
-    if (this.options.poster) this._showPoster(this.options.poster);
     if (this.options.loadingIndicator) this._showLoadingIndicator();
     this._renderer?.dispose();
     this._renderer = null;
@@ -175,7 +167,6 @@ export class Snap3dViewer {
     this.config = null;
     this.stats = null;
     this.warnings = [];
-    this._home = null;
     this.ready = this._load().catch((error) => {
       this._reportError(error);
       throw error;
@@ -200,40 +191,6 @@ export class Snap3dViewer {
       if (pose.target !== undefined) this.camera.origin = [...pose.target];
     }
     this.requestRender();
-    return this;
-  }
-
-  /** The pose `resetCamera()` and the R key return to. Starts as the one the bundle
-   *  ships in `config.initial_camera`; `setHome` moves it. */
-  get home() {
-    const pose = this.controls ? this.controls.home : this._home;
-    return pose && { ...pose, target: [...pose.target] };
-  }
-
-  /**
-   * Make `pose` - by default wherever the camera is now - the pose to return to.
-   * A page that reframes the shot on load wants R to come back to what the visitor
-   * first saw, not to a pose they never had.
-   */
-  setHome(pose = null) {
-    const next = pose ?? (this.camera && {
-      azimuth: this.camera.azimuth,
-      elevation: this.camera.elevation,
-      radius: this.camera.radius,
-      target: [...this.camera.origin],
-    });
-    if (!next) return this;
-    const home = { ...next, target: [...next.target] };
-    if (this.controls) this.controls.home = home;
-    this._home = home;
-    return this;
-  }
-
-  /** Back to the home pose, spin included (R in the desktop viewer). */
-  resetCamera() {
-    const { home } = this;
-    this.spin = 0;
-    if (home) this.setCamera(home);
     return this;
   }
 
@@ -268,13 +225,6 @@ export class Snap3dViewer {
   focus() {
     this.canvas.focus?.({ preventScroll: true });
     return this;
-  }
-
-  /** A PNG data URL of the current view, drawn fresh so it works without
-   *  preserveDrawingBuffer. */
-  snapshot(type = 'image/png', quality) {
-    this.renderFrame();
-    return this.canvas.toDataURL(type, quality);
   }
 
   /** Match the drawing buffer to the canvas's CSS size. Called automatically. */
@@ -329,22 +279,7 @@ export class Snap3dViewer {
     for (const warning of this.warnings) this._warn(warning);
 
     const initial = this.config.initial_camera;
-    // The bundle's own turntable, kept apart from the camera on purpose: `center` is
-    // what the object turns around, `initial_camera.target` is only what the opening
-    // shot is framed on, and the two are free to differ. A bundle written before the
-    // `rotation` block existed falls back to the pair that used to carry both jobs.
-    const rotation = this.config.rotation;
-    this.rotation = {
-      center: [...(rotation?.center ?? initial.target)],
-      axis: normalize(rotation?.axis ?? this.config.up_vector),
-    };
     this.spin = 0;
-    this._home = {
-      azimuth: initial.azimuth_deg,
-      elevation: initial.elevation_deg,
-      radius: initial.radius,
-      target: [...initial.target],
-    };
     if (!this.camera) {
       this.camera = new OrbitCamera(initial.target, initial.radius, this.config.up_vector);
       this.camera.azimuth = initial.azimuth_deg;
@@ -390,23 +325,20 @@ export class Snap3dViewer {
     this.controls?.update(dt);
 
     // Idle spin, until OrbitControls' onInteract cuts it off for good on the first
-    // real drag/zoom/pan - see the wiring in _load(). It swings the camera around the
-    // bundle's own turntable (`config.rotation`), which is not the same thing as the
-    // azimuth a drag moves: azimuth circles whatever the camera is *aimed* at, and
-    // the point an object should turn about is rarely that.
+    // real drag/zoom/pan - see the wiring in _load().
     if (this._autoRotating) {
       this.spinBy(this.options.autoRotateSpeed * dt);
       this._dirty = true;
     }
 
-    if (this._dirty || this.options.render === 'always') {
+    if (this._dirty) {
       this._dirty = false;
       this._draw();
-      this._reportFps(now, dt);
     }
     // Keep clocking while an input is live or the idle spin is running, so the next
-    // pointermove (or rotate step) has a fresh dt.
-    if (this._dirty || this.options.render === 'always' || this.controls?.active || this._autoRotating) {
+    // pointermove (or rotate step) has a fresh dt. Not `this._dirty` too - the block
+    // just above always clears it, so it's already false on every path getting here.
+    if (this.controls?.active || this._autoRotating) {
       this._schedule();
     } else {
       this._last = 0; // idle: the next frame's dt starts from that frame, not from now
@@ -415,14 +347,8 @@ export class Snap3dViewer {
 
   _draw() {
     const { gl, canvas, camera, config } = this;
-    const [r, g, b, a = 1] = this.options.background;
     gl.viewport(0, 0, canvas.width, canvas.height);
-    // The default WebGL context is premultipliedAlpha:true, which means the browser
-    // reads whatever's stored here as already multiplied by its own alpha - clearing
-    // to un-premultiplied [1,1,1,0] stores a literal (1,1,1,0), and compositors are
-    // free to treat that white-at-zero-alpha as opaque white rather than transparent.
-    // Premultiplying it here is what makes alpha 0 reliably transparent.
-    gl.clearColor(r * a, g * a, b * a, a);
+    gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     // near/far track the orbit radius, exactly as view_bundle.py sets them each frame.
@@ -434,42 +360,12 @@ export class Snap3dViewer {
     );
     this._renderer.draw(multiply(projection, camera.viewMatrix()), camera.position);
 
-    // Wait for an actual frame rather than hiding the poster/indicator the instant
-    // loading finishes - hiding either in `_load()` would uncover one blank cleared
-    // frame before the first real draw ever lands.
-    if (this._posterPendingHide) {
-      this._posterPendingHide = false;
-      this._hidePoster();
-    }
     if (this._loadingPendingHide) {
       this._loadingPendingHide = false;
       this._hideLoadingIndicator();
     }
   }
 
-  /** Show `url` over the canvas, creating the overlay the first time it's needed. */
-  _showPoster(url) {
-    if (!this._posterEl) {
-      const host = this._ensureOverlayHost();
-      const img = document.createElement('img');
-      img.alt = '';
-      img.style.cssText =
-        'position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:2147483000; ' +
-        'pointer-events:none; transition:opacity 0.4s ease;';
-      host.appendChild(img);
-      this._posterEl = img;
-    }
-    this._posterEl.src = url;
-    this._posterEl.style.opacity = '1';
-    this._posterEl.style.display = '';
-    this._posterPendingHide = true;
-  }
-
-  _hidePoster() {
-    const img = this._posterEl;
-    if (!img) return;
-    img.style.opacity = '0';
-  }
 
   /** Show the built-in loading bar, creating it the first time it's needed - the
    *  `loadingIndicator` counterpart to `_showPoster()`, same overlay host, same
@@ -538,8 +434,7 @@ export class Snap3dViewer {
   }
 
   /**
-   * Shared by the poster and the loading indicator: both are a sibling element, not
-   * something drawn into the canvas - the canvas already has a WebGL context, and a
+   * For the loading indicator: the canvas already has a WebGL context, and a
    * 2D context can't share it. Absolute positioning needs a positioned ancestor:
    * reuse the canvas's parent if it already is one (a page that built its own stage
    * div, as this library's own demo does), otherwise wrap the canvas in a plain
@@ -562,15 +457,6 @@ export class Snap3dViewer {
       this._overlayHost = host;
     }
     return this._overlayHost;
-  }
-
-  _reportFps(now, dt) {
-    if (!this.options.onFrame) return;
-    this._frames++;
-    if (now - this._fpsAt < 500) return;
-    this.options.onFrame({ fps: (this._frames * 1000) / (now - this._fpsAt), dt });
-    this._frames = 0;
-    this._fpsAt = now;
   }
 
   _observeSize() {

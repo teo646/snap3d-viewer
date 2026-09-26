@@ -7,49 +7,21 @@
 // page already renders, so the operator edits the real page rather than a stand-in.
 //
 // Everything here goes through the base class's own public surface - `camera`,
-// `controls`, `config`, `requestRender()`, `resetCamera()`, `focus()`, `dispose()` -
+// `controls`, `config`, `requestRender()`, `focus()`, `dispose()` -
 // never a private, underscored field, so a refactor of Snap3dViewer can't silently
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { lookAt, multiply, perspective, sub, normalize } from './mat4.js';
+import { lookAt } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
-
-// WASD/arrows (see controls.js's own PAN_KEYS) move the camera - the render changes,
-// same as a drag or a wheel tick would. I/J/K/L moves the other thing entirely: the
-// turntable's own centre (`viewer.rotation.center`, drawn as the dashed line), which
-// no camera control touches and which nothing but these four keys ever moves. The
-// camera is not involved either way round - placing the axis leaves the render
-// exactly as it was, and the spin turns the object about wherever the axis now is,
-// with the line itself holding still. Each key moves it in camera-relative terms, so
-// the line moves the way the letter suggests regardless of which way the view
-// currently faces:
-//   I  away from the camera, along the view direction (the axis recedes)
-//   K  toward the camera, along the view direction (the axis approaches)
-//   J  left on screen
-//   L  right on screen
-// 'view' and 'right' name which vector _moveAxis() computes each tick, not a fixed
-// world axis - both are read off the camera fresh every frame, the same way
-// OrbitCamera's own forwardAxes getter derives its right/up pair. Keyed by
-// event.code (the physical key), not event.key - see controls.js's own PAN_KEYS for
-// why: under a non-Latin input method an I/J/K/L keypress's .key is not 'i'/'j'/'k'/
-// 'l' at all, so matching on .key silently breaks this for exactly the visitors whose
-// arrow keys still work fine.
-const AXIS_MOVE_KEYS = {
-  KeyI: ['view', 1],
-  KeyK: ['view', -1],
-  KeyJ: ['right', -1],
-  KeyL: ['right', 1],
-};
 
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
  * that one stops on *any* interaction, panning included (see OrbitControls'
  * `onInteract`), and a pan is exactly the interaction an operator repositioning the
- * pivot needs the spin to survive. So `autoRotate` is always off on the base class,
- * and a drag, a wheel tick or R - not a WASD pan, nor an I/J/K/L axis move - are
- * watched for directly instead.
+ * view needs the spin to survive. So `autoRotate` is always off on the base class,
+ * and a drag or a wheel tick - not a WASD pan - are watched for directly instead.
  */
 export class Snap3dViewerEditor extends Snap3dViewer {
   /**
@@ -71,46 +43,23 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._rafId = 0;
     this._host = null;
     this._els = null;
-    this._axisMoveKeys = new Set(); // held subset of AXIS_MOVE_KEYS, advanced in _tick()
-    this._axisCanvas = null;
-    this._axisCtx = null;
 
     this._onPointerDown = () => this.pause();
     this._onWheel = () => this.pause();
     this._onKeydown = (event) => {
-      if (event.code === 'KeyR') {
-        this.pause(); // OrbitControls' own listener restores the camera itself
-        // ...but it goes through the controls, not through resetCamera(), so the two
-        // things that live up here are ours to put back: the axis, and the turn
-        // counter the readout shows. R means "as the bundle shipped it" for both.
-        const shipped = this.config?.rotation?.center ?? this.config?.initial_camera.target;
-        if (shipped && this.rotation) this.rotation.center = [...shipped];
-        this.spin = 0;
-      }
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
       }
-      if (AXIS_MOVE_KEYS[event.code] !== undefined) {
-        event.preventDefault();
-        this._axisMoveKeys.add(event.code);
-      }
     };
-    this._onKeyup = (event) => this._axisMoveKeys.delete(event.code);
     // Bound to the canvas, not the window: a keydown only reaches a canvas-scoped
     // listener while the canvas itself has focus, which is exactly the condition
-    // under which Space (or I/J/K/L) should mean "drive this viewer" rather than
-    // whatever it means elsewhere on the host page.
+    // under which Space should mean "drive this viewer" rather than whatever it
+    // means elsewhere on the host page.
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
     this.canvas.addEventListener('wheel', this._onWheel, { passive: true });
     this.canvas.addEventListener('keydown', this._onKeydown);
-    this.canvas.addEventListener('keyup', this._onKeyup);
-    // I/J/K/L only act while held, same as WASD; losing focus mid-hold must not leave
-    // one stuck "down" forever (mirrors OrbitControls' own blur handling for its keys).
-    this._onBlur = () => this._axisMoveKeys.clear();
-    this.canvas.addEventListener('blur', this._onBlur);
 
-    this._buildAxisLine();
     if (ui) this._buildUI();
     this._tick = this._tick.bind(this);
     this._rafId = requestAnimationFrame(this._tick);
@@ -145,10 +94,8 @@ export class Snap3dViewerEditor extends Snap3dViewer {
    *
    * Pauses the idle spin first: the object keeps turning while an operator zooms or
    * pans (see the class comment), so without this, exporting mid-turn would write
-   * out - and measure `frame` against - whatever fleeting angle the spin happened to
-   * be at that instant rather than the pose actually being looked at, and a pose
-   * that clips `_measureFrame()` at one angle but not another makes that pose pick
-   * silently non-deterministic too.
+   * out whatever fleeting angle the spin happened to be at that instant rather than
+   * the pose actually being looked at.
    *
    * @returns {object|null} a plain object ready for `JSON.stringify`, or null before
    *   the bundle has loaded
@@ -193,93 +140,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
         near: round(c.radius * nearScale),
         far: round(c.radius * farScale),
       },
-      // The turntable, which the camera block above says nothing about: `center` is
-      // wherever I/J/K/L has put the axis, `axis` is carried straight through - only
-      // the centre ever moves here. viewer.js's _load() reads both back (falling back
-      // to target/up_vector for a bundle with no `rotation` block at all).
-      rotation: {
-        center: (this.rotation?.center ?? c.origin).map(round),
-        axis: (this.rotation?.axis ?? c.up).map(round),
-      },
-      // How a consuming page should reproduce this framing on a box shaped
-      // differently than this canvas - see _measureFrame(). Falls back to the
-      // loaded config's own `frame` (or the shipped default) only if nothing could
-      // be read back (e.g. the canvas is 0x0 - hidden mid-export).
-      frame: this._measureFrame() ?? this.config.frame ?? { fill: 0.88, anchor: [0.5, 0.5] },
-    };
-  }
-
-  /**
-   * `{fill, anchor}` as this canvas is actually composed right now: `fill` is how
-   * much of the canvas's own *height* the rendered object occupies
-   * (`objH/canvasH`, can read above 1 for a deliberately close crop), and `anchor`
-   * is where in the canvas - `[x, y]` fraction, 0..1, y from the top - the rotation
-   * axis (`rotation.center`) itself projects to. Height only, not
-   * `max(objW/canvasW, objH/canvasH)`: for a fixed vertical FOV, screen height as a
-   * fraction of canvas height depends only on radius and the object's own size,
-   * never on the canvas's width or aspect ratio, so it's the one measurement that
-   * means the same thing on a consumer's differently-shaped box as it does here -
-   * which is the whole reason to write these out instead of just the camera pose.
-   * See snap3d-clothes/app.js's `applyFrame()` for the consumer side of this exact
-   * measurement.
-   *
-   * @returns {{fill: number, anchor: [number, number]}|null} null if nothing is
-   *   drawn (an empty canvas) or the axis is behind the camera - exportConfig()
-   *   falls back to the loaded config's own value rather than write a broken one.
-   */
-  _measureFrame() {
-    if (!this.camera || !this.rotation) return null;
-    const round = (n) => Math.round(n * 1e4) / 1e4;
-    const gl = this.gl;
-    const { width, height } = this.canvas;
-    if (!width || !height) return null;
-
-    // Alpha marks "the object" versus "nothing drawn" - true only against a
-    // transparent clear, and this class doesn't otherwise ask for one (its default
-    // background, like the base class's, is an opaque dark grey - see
-    // VIEWER_DEFAULTS). Rendering one throwaway frame with alpha 0 gives a reading
-    // uncoupled from whatever background a host page actually configured; the real
-    // background comes straight back on the next regular frame, since nothing else
-    // reads `this.options.background` in between.
-    const background = this.options.background;
-    this.options.background = [0, 0, 0, 0];
-    this.renderFrame();
-    const pixels = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    this.options.background = background;
-    this.requestRender(); // queue a real frame back, since the throwaway one just drew
-
-    let minX = width, maxX = -1, minY = height, maxY = -1;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        if (pixels[(y * width + x) * 4 + 3] > 8) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-    if (maxX < 0) return null; // nothing drawn
-    if (minY <= 0 || maxY >= height - 1) return null; // top/bottom clipped - unreliable
-
-    const c = this.camera;
-    const proj = multiply(
-      perspective(this.options.fov ?? this.config.initial_camera.fov_deg, width / height, c.radius * 0.02, c.radius * 20),
-      c.viewMatrix(),
-    );
-    const [ax, ay, az] = this.rotation.center;
-    const cx = proj[0] * ax + proj[4] * ay + proj[8] * az + proj[12];
-    const cy = proj[1] * ax + proj[5] * ay + proj[9] * az + proj[13];
-    const cw = proj[3] * ax + proj[7] * ay + proj[11] * az + proj[15];
-    if (cw <= 1e-6) return null; // the axis is behind the camera
-
-    return {
-      fill: round((maxY - minY) / height),
-      anchor: [
-        round(((cx / cw) * 0.5 + 0.5)),
-        round(1 - ((cy / cw) * 0.5 + 0.5)), // top-down, matching app.js's box.y convention
-      ],
     };
   }
 
@@ -288,62 +148,21 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.canvas.removeEventListener('pointerdown', this._onPointerDown);
     this.canvas.removeEventListener('wheel', this._onWheel);
     this.canvas.removeEventListener('keydown', this._onKeydown);
-    this.canvas.removeEventListener('keyup', this._onKeyup);
-    this.canvas.removeEventListener('blur', this._onBlur);
     this._host?.remove();
     this._host = null;
-    this._axisCanvas?.remove();
-    this._axisCanvas = null;
     super.dispose();
   }
 
   // -- internals --------------------------------------------------------------------
 
-  /** I/J/K/L held: move `rotation.center` in camera-relative directions - away/toward
-   *  along the view, left/right on screen - at the same speed a WASD pan moves the
-   *  camera (`controls.options.panPerSecond`, scaled by the current radius so it
-   *  feels the same regardless of how far zoomed in the view is). `view` and `right`
-   *  are read fresh each call, the same vectors the axis line itself is projected
-   *  with, so held keys and the line agree on "away". Nothing about the camera is
-   *  touched, so the render doesn't stir while the axis is being placed; the next
-   *  spin simply turns the object about the new centre. */
-  _moveAxis(dt) {
-    if (!this._axisMoveKeys.size || !this.rotation) return;
-    const speed = this.camera.radius * (this.controls?.options.panPerSecond ?? 1.2) * dt;
-    const view = normalize(sub(this.camera.origin, this.camera.position));
-    const [right] = this.camera.forwardAxes;
-    const vectors = { view, right };
-    let dx = 0, dy = 0, dz = 0;
-    for (const code of this._axisMoveKeys) {
-      const entry = AXIS_MOVE_KEYS[code];
-      if (!entry) continue;
-      const [name, sign] = entry;
-      const v = vectors[name];
-      dx += sign * v[0];
-      dy += sign * v[1];
-      dz += sign * v[2];
-    }
-    if (!dx && !dy && !dz) return; // e.g. I and K both held: cancel out
-    const c = this.rotation.center;
-    this.rotation.center = [c[0] + dx * speed, c[1] + dy * speed, c[2] + dz * speed];
-  }
-
   _tick(now) {
     this._rafId = requestAnimationFrame(this._tick);
     const dt = this.camera && this._lastTick ? Math.min((now - this._lastTick) / 1000, 0.1) : 0;
     if (this.camera && this._playing) {
-      // The base class's own turntable step, driven from here instead of from its
-      // `autoRotate` so a WASD pan or an I/J/K/L move doesn't stop it (OrbitControls'
-      // onInteract makes no distinction; see the class comment).
       this.spinBy(ROTATE_SPEED * dt);
-    }
-    if (this.camera && this._axisMoveKeys.size) {
-      this._moveAxis(dt);
-      this.requestRender(); // the object turns about the new centre from here on
     }
     this._lastTick = now;
     this._updateReadout();
-    this._updateAxisLine();
   }
 
   _updateReadout() {
@@ -351,105 +170,9 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const c = this.camera;
     const p = (n) => n.toFixed(3).padStart(8);
     this._els.readout.textContent =
-      `axis    ${(this.rotation?.center ?? c.origin).map(p).join(' ')}\n` +
-      `camera  ${c.origin.map(p).join(' ')}\n` +
+      `target  ${c.origin.map(p).join(' ')}\n` +
       `radius  ${c.radius.toFixed(3)}\n` +
       `azimuth ${c.azimuth.toFixed(1)}°  spin ${this.spin.toFixed(0)}°`;
-  }
-
-  /**
-   * A 2D canvas laid exactly over the WebGL one - a `position: fixed` sibling of the
-   * host page's own DOM (same reasoning as `_buildUI`'s shadow root: correct even when
-   * `this.canvas` sits inside an ancestor that clips or transforms it, since its
-   * position and size are read from `getBoundingClientRect()`, the same rectangle that
-   * clipping already resolved to) - drawn on, not through the SH/parallax shader, so
-   * this needs none of the renderer's own state.
-   */
-  _buildAxisLine() {
-    const el = document.createElement('canvas');
-    el.style.cssText =
-      'all: initial; position: fixed; pointer-events: none; z-index: 2147482999;';
-    document.body.appendChild(el);
-    this._axisCanvas = el;
-    this._axisCtx = el.getContext('2d');
-  }
-
-  /** Projects `camera.origin ± camera.up * length` through the same
-   *  perspective/view the renderer itself draws with (see Snap3dViewer's own
-   *  `_draw()`) and draws the segment between them - the rotation axis, in the same
-   *  place onscreen the render puts it, updated every tick so it tracks a drag, a
-   *  zoom, a WASD pan, an I/J/K/L axis move and the idle spin alike. */
-  _updateAxisLine() {
-    const canvas = this._axisCanvas;
-    if (!canvas || !this.camera || !this.isReady) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const dpr = Math.min(devicePixelRatio || 1, this.options.maxPixelRatio ?? 2);
-    const w = Math.max(1, Math.round(rect.width * dpr));
-    const h = Math.max(1, Math.round(rect.height * dpr));
-    canvas.style.left = `${rect.left}px`;
-    canvas.style.top = `${rect.top}px`;
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    if (canvas.width !== w) canvas.width = w;
-    if (canvas.height !== h) canvas.height = h;
-
-    const ctx = this._axisCtx;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (!rect.width || !rect.height) return;
-    // A page that swaps its own canvas for a photo (visibility, not display, so it
-    // keeps its box and this rect stays meaningful) shouldn't get a line drawn over
-    // the photo instead.
-    const style = getComputedStyle(this.canvas);
-    if (style.visibility === 'hidden' || style.display === 'none' || Number(style.opacity) === 0) return;
-
-    const c = this.camera;
-    const projection = perspective(
-      this.options.fov ?? this.config.initial_camera.fov_deg,
-      this.canvas.width / this.canvas.height, // the render's own aspect, not the CSS box's
-      c.radius * 0.02,
-      c.radius * 20,
-    );
-    // The same camera the frame is drawn with. The spin swings that camera around
-    // this very line, and a rotation about a line leaves the line where it was, so
-    // the projection below comes out identical frame after frame - the axis sits
-    // still and the object goes round it.
-    const mvp = multiply(projection, c.viewMatrix());
-
-    const toScreen = (x, y, z) => {
-      const cx = mvp[0] * x + mvp[4] * y + mvp[8] * z + mvp[12];
-      const cy = mvp[1] * x + mvp[5] * y + mvp[9] * z + mvp[13];
-      const cw = mvp[3] * x + mvp[7] * y + mvp[11] * z + mvp[15];
-      if (cw <= 1e-6) return null; // behind the camera
-      return [((cx / cw) * 0.5 + 0.5) * canvas.width, (1 - ((cy / cw) * 0.5 + 0.5)) * canvas.height, cw];
-    };
-
-    const [ax, ay, az] = this.rotation?.center ?? c.origin;
-    const dir = this.rotation?.axis ?? c.up;
-    const half = c.radius * 1.3; // pokes past the object either end, not just to its edge
-    const top = toScreen(ax + dir[0] * half, ay + dir[1] * half, az + dir[2] * half);
-    const bottom = toScreen(ax - dir[0] * half, ay - dir[1] * half, az - dir[2] * half);
-    const pivot = toScreen(ax, ay, az);
-    if (!top || !bottom) return;
-
-    ctx.strokeStyle = 'rgba(255, 82, 82, 0.85)';
-    ctx.lineWidth = 1.5 * dpr;
-    ctx.setLineDash([6 * dpr, 5 * dpr]);
-    ctx.beginPath();
-    ctx.moveTo(top[0], top[1]);
-    ctx.lineTo(bottom[0], bottom[1]);
-    ctx.stroke();
-
-    if (pivot) {
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#ff5252';
-      ctx.beginPath();
-      ctx.arc(pivot[0], pivot[1], 4 * dpr, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.lineWidth = 1.5 * dpr;
-      ctx.strokeStyle = 'rgba(10, 11, 13, 0.9)';
-      ctx.stroke();
-    }
   }
 
   /**
@@ -468,10 +191,9 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag/wheel/wasd/arrows move camera &middot; ijkl move rotation axis</p>
+          <p id="hint">drag/wheel/wasd/arrows move camera</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
-            <button id="reset" type="button">Reset (R)</button>
             <button id="help" type="button" aria-label="Controls help">?</button>
           </div>
         </div>
@@ -480,14 +202,12 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <dialog id="help-dialog">
         <button id="help-close" type="button" aria-label="Close">✕</button>
         <h2>Controls</h2>
-        <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these. The dashed line is the turntable the object spins on (<code>rotation.center</code> / <code>rotation.axis</code>): it stays put, the object goes round it. The camera is a separate thing entirely.</p>
+        <p class="sub">This is the ordinary <code>Snap3dViewer</code> - this build just adds these.</p>
         <dl>
           <dt>Drag</dt><dd>orbit</dd>
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
           <dt>W A S D<br>or arrows</dt><dd>move the camera - keeps spinning through this one</dd>
-          <dt>I J K L</dt><dd>move the rotation axis: I away from you, K toward you, J left, L right. Only the dashed line moves - the camera and the object stay exactly where they are, and the object starts turning about wherever you leave it</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
-          <dt>R</dt><dd>reset to the pose the bundle shipped with (also pauses)</dd>
           <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
         </dl>
       </dialog>
@@ -509,7 +229,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const els = {
       readout: $('readout'),
       playBtn: $('play'),
-      resetBtn: $('reset'),
       helpBtn: $('help'),
       helpDialog: $('help-dialog'),
       helpCloseBtn: $('help-close'),
@@ -527,10 +246,6 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.playing = this._playing; // sync the button label to the starting state
 
     els.playBtn.addEventListener('click', () => (this.playing = !this.playing));
-    els.resetBtn.addEventListener('click', () => {
-      this.pause();
-      this.resetCamera();
-    });
     els.closeBtn.addEventListener('click', () => els.dialog.close());
     els.dialog.addEventListener('click', (e) => {
       if (e.target === els.dialog) els.dialog.close(); // the backdrop
@@ -547,19 +262,10 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     };
 
     els.makeBtn.addEventListener('click', () => {
-      // exportConfig() pauses and measures frame itself, but falls back silently if
-      // the current pose clips (see _measureFrame()) - measuring once more here,
-      // after that same pause, is what lets this button say so instead of quietly
-      // handing back a config whose zoom doesn't match what's on screen.
-      this.pause();
-      const measured = this._measureFrame();
       const cfg = this.exportConfig();
       if (!cfg) return;
       els.text.value = JSON.stringify(cfg, null, 2) + '\n';
-      setStatus(
-        measured ? '' : 'This angle runs slightly past the edge, so zoom/position were saved as the default instead - zoom out a touch and try again for this pose’s own.',
-        measured ? '' : 'error',
-      );
+      setStatus('');
       els.dialog.showModal();
     });
 
