@@ -60,7 +60,10 @@ and `url` points at a snap3d bundle.
 along with it, and since the point a camera looks straight at always lands at the exact
 centre of the canvas, the turntable sits there too, automatically, on any box shape.
 
-Options: `controls` (`false`, or an `OrbitControls` config), `autoStart`,
+Options: `controls` (`false`, or an `OrbitControls` config), `passthrough` (`false` by
+default; `true` forwards a pointerdown that lands on a transparent pixel - the
+background, not the object - to whatever sits under the canvas instead of starting a
+drag, for a page whose canvas overlaps its own controls), `autoStart`,
 `maxPixelRatio`, `antialias`, `fov`, `contextAttributes`, `loadingIndicator` (a progress
 bar and MB counter over the canvas while the bundle downloads and decompresses, gone the
 instant the first frame draws; `true` for the built-in look, `false` to build your own
