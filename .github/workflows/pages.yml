@@ -40,6 +40,9 @@ jobs:
         run: |
           mkdir -p _site/dist
           cp dist/* _site/dist/
+          # Old page paths that now live at their own URL - a static meta-refresh
+          # rather than a server redirect, since Pages serves plain files.
+          cp -r redirects/* _site/
           ls -lh _site/dist
 
       - uses: actions/upload-pages-artifact@v3
