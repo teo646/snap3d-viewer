@@ -12,10 +12,16 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
+import { CONTROL_DEFAULTS } from './controls.js';
 import { lookAt, multiply, normalize, perspective, rotateAbout, sub } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
-const UP_STEP_DEG = 1; // per keypress; Shift multiplies it by UP_STEP_FAST
+// The base viewer's own panPerSecond matches view_bundle.py's per-frame pan exactly
+// (see controls.js) - deliberately not the number to tune for feel. An operator
+// nudging the camera by eye wants something slower than that reference constant, so
+// the editor asks for its own default rather than touching the shared one.
+const EDITOR_PAN_PER_SECOND = CONTROL_DEFAULTS.panPerSecond * 0.35;
+const UP_STEP_DEG = 0.3; // per keypress; Shift multiplies it by UP_STEP_FAST
 const UP_STEP_FAST = 10;
 const UP_GIZMO_COLOR = '#39e991';
 
@@ -39,7 +45,13 @@ export class Snap3dViewerEditor extends Snap3dViewer {
    */
   constructor(canvas, url, options = {}) {
     const { playing = true, ui = true, ...base } = options;
-    super(canvas, url, { ...base, autoRotate: false });
+    // false stays false (no controls at all); an explicit object of the caller's own
+    // is layered over the editor's slower default rather than replaced by it.
+    const controls =
+      base.controls === false
+        ? false
+        : { panPerSecond: EDITOR_PAN_PER_SECOND, ...(base.controls === true || base.controls == null ? {} : base.controls) };
+    super(canvas, url, { ...base, autoRotate: false, controls });
 
     this._playing = playing;
     this._lastTick = 0;
