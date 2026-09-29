@@ -12,9 +12,12 @@
 // break this file.
 
 import { Snap3dViewer } from './viewer.js';
-import { lookAt } from './mat4.js';
+import { lookAt, multiply, normalize, perspective, rotateAbout, sub } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
+const UP_STEP_DEG = 1; // per keypress; Shift multiplies it by UP_STEP_FAST
+const UP_STEP_FAST = 10;
+const UP_GIZMO_COLOR = '#39e991';
 
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
@@ -43,27 +46,72 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._rafId = 0;
     this._host = null;
     this._els = null;
+    this._gizmoCanvas = null;
+    this._gizmoCtx = null;
 
     this._onPointerDown = () => this.pause();
     this._onWheel = () => this.pause();
+    // I/K tilt the up vector toward/away from the view direction; J/L roll it about
+    // the view direction - see _nudgeUp. IJKL rather than arrows: arrows already pan
+    // (see Snap3dViewer's own controls), and this needs four more keys beside them.
     this._onKeydown = (event) => {
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === 'i' || key === 'j' || key === 'k' || key === 'l') {
+        event.preventDefault();
+        this._nudgeUp(key, event.shiftKey ? UP_STEP_DEG * UP_STEP_FAST : UP_STEP_DEG);
       }
     };
     // Bound to the canvas, not the window: a keydown only reaches a canvas-scoped
     // listener while the canvas itself has focus, which is exactly the condition
-    // under which Space should mean "drive this viewer" rather than whatever it
-    // means elsewhere on the host page.
+    // under which Space (or IJKL) should mean "drive this viewer" rather than
+    // whatever it means elsewhere on the host page.
     this.canvas.addEventListener('pointerdown', this._onPointerDown);
     this.canvas.addEventListener('wheel', this._onWheel, { passive: true });
     this.canvas.addEventListener('keydown', this._onKeydown);
 
-    if (ui) this._buildUI();
+    if (ui) {
+      this._buildUI();
+      this._buildUpGizmo();
+    }
     this._tick = this._tick.bind(this);
     this._rafId = requestAnimationFrame(this._tick);
     this.ready.then(() => this.focus()).catch(() => {});
+  }
+
+  /**
+   * Rotate the bundle's `up_vector` by `deg` and re-point the live camera at the
+   * result, without moving the eye - `up` only ever changes how what's already on
+   * screen reads as level, never where the camera is, so freezing `position` across
+   * the change is what makes the edit legible: the view visibly rolls, and the fix is
+   * "keep pressing until the horizon in the up-vector arrow overlay looks upright,"
+   * not "hunt for where the camera went."
+   *
+   * The two rotation axes are read off the *current* camera, not fixed world axes,
+   * because a wrong up vector also means a foreshortened orbit basis - rotating about
+   * the camera's own right/view-direction axes keeps every press doing the same
+   * *visual* thing (tilt away from you / roll clockwise) regardless of how wrong
+   * `up_vector` currently is.
+   */
+  _nudgeUp(key, deg) {
+    if (!this.camera || !this.config) return;
+    const c = this.camera;
+    const rad = (deg * Math.PI) / 180;
+    const viewDir = normalize(sub(c.origin, c.position), 1e-10);
+    const [right] = c.forwardAxes;
+    const axis = key === 'i' || key === 'k' ? right : viewDir; // i/k pitch, j/l roll
+    const sign = key === 'i' || key === 'l' ? 1 : -1;
+    const nextUp = normalize(rotateAbout(c.up, axis, sign * rad));
+
+    const position = c.position; // read before setUp changes what `position` means
+    c.setUp(nextUp);
+    c.setPose(position, c.origin);
+    this.config.up_vector = nextUp;
+    this.requestRender();
   }
 
   get playing() {
@@ -150,6 +198,9 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this.canvas.removeEventListener('keydown', this._onKeydown);
     this._host?.remove();
     this._host = null;
+    this._gizmoCanvas?.remove();
+    this._gizmoCanvas = null;
+    this._gizmoCtx = null;
     super.dispose();
   }
 
@@ -163,6 +214,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     }
     this._lastTick = now;
     this._updateReadout();
+    this._drawUpGizmo();
   }
 
   _updateReadout() {
@@ -172,7 +224,107 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     this._els.readout.textContent =
       `target  ${c.origin.map(p).join(' ')}\n` +
       `radius  ${c.radius.toFixed(3)}\n` +
-      `azimuth ${c.azimuth.toFixed(1)}°  spin ${this.spin.toFixed(0)}°`;
+      `azimuth ${c.azimuth.toFixed(1)}°  spin ${this.spin.toFixed(0)}°\n` +
+      `up      ${c.up.map(p).join(' ')}`;
+  }
+
+  /**
+   * A transparent 2D canvas laid exactly over the WebGL one, not a draw call added to
+   * the GL scene - the viewer's own render loop is demand-driven and clears the
+   * canvas on every draw it decides to run (see Snap3dViewer#_draw), so a gizmo drawn
+   * through the same context would just as often be erased the frame after as shown.
+   * A sibling canvas redrawn every editor tick has no such race, at the cost of never
+   * occluding against the bundle's own depth - fine for an arrow that only needs to
+   * be visible, not physically correct.
+   */
+  _buildUpGizmo() {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2147483000;';
+    document.body.appendChild(canvas);
+    this._gizmoCanvas = canvas;
+    this._gizmoCtx = canvas.getContext('2d');
+  }
+
+  /**
+   * Project `camera.origin -> origin + up * radius/2` through the same
+   * projection/view the bundle itself draws with (see Snap3dViewer#_draw - near/far
+   * are re-derived from `radius` there too, so this has to match rather than assume
+   * the config's own near/far) and draw the result as an arrow, so the up_vector
+   * `_nudgeUp` is editing reads as a line in the same space as the bundle rather than
+   * as three unitless numbers in the readout.
+   */
+  _drawUpGizmo() {
+    const canvas = this._gizmoCanvas;
+    if (!canvas || !this.camera || !this.config) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const ctx = this._gizmoCtx;
+    if (!rect.width || !rect.height) {
+      canvas.width = canvas.height = 0;
+      return;
+    }
+    if (canvas.width !== rect.width || canvas.height !== rect.height) {
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+    canvas.style.left = `${rect.left}px`;
+    canvas.style.top = `${rect.top}px`;
+    canvas.style.width = `${rect.width}px`;
+    canvas.style.height = `${rect.height}px`;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const c = this.camera;
+    const projection = perspective(
+      this.options.fov ?? this.config.initial_camera.fov_deg,
+      rect.width / rect.height,
+      c.radius * 0.02,
+      c.radius * 20,
+    );
+    const vp = multiply(projection, c.viewMatrix()); // column-major - see src/mat4.js
+
+    // Column-major M * [x, y, z, 1]; returns clip-space (x, y, w) - z is unused, this
+    // only ever draws in 2D screen space.
+    const project = ([x, y, z]) => {
+      const cx = vp[0] * x + vp[4] * y + vp[8] * z + vp[12];
+      const cy = vp[1] * x + vp[5] * y + vp[9] * z + vp[13];
+      const cw = vp[3] * x + vp[7] * y + vp[11] * z + vp[15];
+      if (cw < 1e-4) return null; // behind the eye - nothing sane to draw
+      return { x: ((cx / cw) * 0.5 + 0.5) * canvas.width, y: (1 - ((cy / cw) * 0.5 + 0.5)) * canvas.height };
+    };
+
+    const tail = c.origin;
+    const tip = [c.origin[0] + c.up[0] * c.radius * 0.5, c.origin[1] + c.up[1] * c.radius * 0.5, c.origin[2] + c.up[2] * c.radius * 0.5];
+    const p0 = project(tail);
+    const p1 = project(tip);
+    if (!p0 || !p1) return;
+
+    const angle = Math.atan2(p1.y - p0.y, p1.x - p0.x);
+    const headLen = 12;
+
+    ctx.save();
+    // A dark outline first, so the line stays visible over both light and dark
+    // patches of whatever the bundle itself just rendered.
+    for (const [color, width] of [['rgba(0,0,0,0.55)', 5], [UP_GIZMO_COLOR, 2.5]]) {
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = width;
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p1.x - headLen * Math.cos(angle - Math.PI / 7), p1.y - headLen * Math.sin(angle - Math.PI / 7));
+      ctx.lineTo(p1.x - headLen * Math.cos(angle + Math.PI / 7), p1.y - headLen * Math.sin(angle + Math.PI / 7));
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.font = '600 12px ui-monospace, monospace';
+    ctx.fillStyle = UP_GIZMO_COLOR;
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = 3;
+    ctx.strokeText('up', p1.x + 6, p1.y - 6);
+    ctx.fillText('up', p1.x + 6, p1.y - 6);
+    ctx.restore();
   }
 
   /**
@@ -191,7 +343,7 @@ export class Snap3dViewerEditor extends Snap3dViewer {
       <div id="bottom-bar">
         <div id="panel">
           <pre id="readout">loading…</pre>
-          <p id="hint">drag/wheel/wasd/arrows move camera</p>
+          <p id="hint">drag/wheel/wasd/arrows move camera - ijkl fix up vector</p>
           <div id="transport">
             <button id="play" type="button">Pause (Space)</button>
             <button id="help" type="button" aria-label="Controls help">?</button>
@@ -208,7 +360,8 @@ export class Snap3dViewerEditor extends Snap3dViewer {
           <dt>Wheel / pinch</dt><dd>zoom - moves the camera in or out</dd>
           <dt>W A S D<br>or arrows</dt><dd>move the camera - keeps spinning through this one</dd>
           <dt>Space</dt><dd>play / pause the idle spin</dd>
-          <dt>Make config file</dt><dd>writes the camera above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
+          <dt>I K<br>J L</dt><dd>tilt / roll <code>up_vector</code> - the green arrow in the scene is it; hold Shift to move it faster</dd>
+          <dt>Make config file</dt><dd>writes the camera and <code>up_vector</code> above into a new <code>config.json</code> - save it over the bundle's own file and that becomes the new default</dd>
         </dl>
       </dialog>
       <dialog id="dialog">

@@ -58,6 +58,19 @@ export class OrbitCamera {
     return this;
   }
 
+  /**
+   * Re-point the orbit's up axis, recomputing the horizontal basis it defines -
+   * `position`/`radius`/`azimuth`/`elevation` are left untouched, so this alone moves
+   * nothing on screen; a caller that wants the roll a new `up` implies to actually show
+   * follows with `setPose(this.position, this.origin)` using the position from
+   * *before* this call - see {@link Snap3dViewerEditor#_nudgeUp}.
+   */
+  setUp(up) {
+    this.up = normalize(up);
+    [this._right, this._forward] = horizontalBasis(this.up);
+    return this;
+  }
+
   /** (right, up) in the current view direction, for WASD panning. */
   get forwardAxes() {
     const viewDir = normalize(sub(this.origin, this.position), 1e-10);
