@@ -24,6 +24,8 @@ const EDITOR_PAN_PER_SECOND = CONTROL_DEFAULTS.panPerSecond * 0.35;
 const UP_STEP_DEG = 0.3; // per keypress; Shift multiplies it by UP_STEP_FAST
 const UP_STEP_FAST = 10;
 const UP_GIZMO_COLOR = '#39e991';
+// event.code, keyed the same way controls.js's PAN_KEYS is - see _onKeydown.
+const UP_KEYS = { KeyI: 'i', KeyJ: 'j', KeyK: 'k', KeyL: 'l' };
 
 /**
  * The idle spin here is this class's own, not Snap3dViewer's built-in `autoRotate`:
@@ -66,14 +68,20 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     // I/K tilt the up vector toward/away from the view direction; J/L roll it about
     // the view direction - see _nudgeUp. IJKL rather than arrows: arrows already pan
     // (see Snap3dViewer's own controls), and this needs four more keys beside them.
+    //
+    // Matched on event.code, not event.key, for the same reason controls.js's own
+    // PAN_KEYS is: under a non-Latin input method (Korean, Japanese, ...) a physical
+    // I/J/K/L keypress's *character* is not 'i'/'j'/'k'/'l', so .key silently drops
+    // the binding for exactly the visitors WASD's .code match keeps working for.
+    // .code still reports 'KeyI' etc. regardless of layout or an active IME.
     this._onKeydown = (event) => {
       if (event.code === 'Space') {
         event.preventDefault(); // otherwise the page scrolls
         this.playing = !this.playing;
         return;
       }
-      const key = event.key.toLowerCase();
-      if (key === 'i' || key === 'j' || key === 'k' || key === 'l') {
+      const key = UP_KEYS[event.code];
+      if (key) {
         event.preventDefault();
         this._nudgeUp(key, event.shiftKey ? UP_STEP_DEG * UP_STEP_FAST : UP_STEP_DEG);
       }
