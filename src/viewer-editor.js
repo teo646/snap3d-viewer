@@ -13,7 +13,7 @@
 
 import { Snap3dViewer } from './viewer.js';
 import { CONTROL_DEFAULTS } from './controls.js';
-import { lookAt, multiply, normalize, perspective, rotateAbout, sub } from './mat4.js';
+import { add, lookAt, multiply, normalize, perspective, rotateAbout, sub } from './mat4.js';
 
 const ROTATE_SPEED = 16; // deg/s - matches the shipped viewer's own idle-spin default
 // The base viewer's own panPerSecond matches view_bundle.py's per-frame pan exactly
@@ -105,17 +105,20 @@ export class Snap3dViewerEditor extends Snap3dViewer {
 
   /**
    * Rotate the bundle's `up_vector` by `deg` and re-point the live camera at the
-   * result, without moving the eye - `up` only ever changes how what's already on
-   * screen reads as level, never where the camera is, so freezing `position` across
-   * the change is what makes the edit legible: the view visibly rolls, and the fix is
-   * "keep pressing until the horizon in the up-vector arrow overlay looks upright,"
-   * not "hunt for where the camera went."
+   * result. J/L rotate `up` about the view direction (roll) - `lookAt` only ever uses
+   * the component of `up` perpendicular to the view direction, so that component is
+   * the *entire* visible effect, and freezing `position` across the change is what
+   * makes it legible: the view visibly rolls, and the fix is "keep pressing until the
+   * horizon looks upright," not "hunt for where the camera went."
    *
-   * The two rotation axes are read off the *current* camera, not fixed world axes,
-   * because a wrong up vector also means a foreshortened orbit basis - rotating about
-   * the camera's own right/view-direction axes keeps every press doing the same
-   * *visual* thing (tilt away from you / roll clockwise) regardless of how wrong
-   * `up_vector` currently is.
+   * I/K rotate `up` about the camera's right axis (pitch) instead, and that axis is
+   * exactly the one spanning the view-direction/up plane `lookAt` throws away - held
+   * with `position` frozen the same way, the edit would do nothing visible until the
+   * discarded component crossed zero, then flip the image outright. So pitch also
+   * carries `position` through the same rotation, orbiting the eye around `origin`
+   * right along with `up`: the pair stays rigidly related (their dot product doesn't
+   * change), which is what makes the object visibly nod rather than the screen either
+   * doing nothing or snapping upside down.
    */
   _nudgeUp(key, deg) {
     if (!this.camera || !this.config) return;
@@ -123,11 +126,14 @@ export class Snap3dViewerEditor extends Snap3dViewer {
     const rad = (deg * Math.PI) / 180;
     const viewDir = normalize(sub(c.origin, c.position), 1e-10);
     const [right] = c.forwardAxes;
-    const axis = key === 'i' || key === 'k' ? right : viewDir; // i/k pitch, j/l roll
-    const sign = key === 'i' || key === 'l' ? 1 : -1;
-    const nextUp = normalize(rotateAbout(c.up, axis, sign * rad));
+    const pitch = key === 'i' || key === 'k';
+    const axis = pitch ? right : viewDir;
+    const angle = (key === 'i' || key === 'l' ? 1 : -1) * rad;
 
-    const position = c.position; // read before setUp changes what `position` means
+    const oldPosition = c.position; // read before setUp changes what this getter means
+    const nextUp = normalize(rotateAbout(c.up, axis, angle));
+    const position = pitch ? add(c.origin, rotateAbout(sub(oldPosition, c.origin), axis, angle)) : oldPosition;
+
     c.setUp(nextUp);
     c.setPose(position, c.origin);
     this.config.up_vector = nextUp;
