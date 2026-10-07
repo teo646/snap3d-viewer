@@ -4,6 +4,10 @@
 
 import { PIPELINE_GLSL_SHA256, VERTEX_SHADER, fragmentShader } from './shaders.js';
 
+// The Python source's own hardcoded literal (see shaders.js's EVAL_SH_GLSL) - what a
+// bundle renders with unless its config.json names `back_face_color`.
+const DEFAULT_BACKFACE_COLOR = [0.35, 0.33, 0.3];
+
 const ATTRIBUTES = [
   ['in_pos', 'position', 3],
   ['in_uv', 'uv', 2],
@@ -111,6 +115,13 @@ export function createRenderer(gl, bundle) {
   gl.uniform2f(uniform('u_tex_size'), w, h);
   gl.uniform1f(uniform('u_height_range'), config.height.range);
   gl.uniform1f(uniform('u_layer_step'), (2 * config.height.range) / config.height.num_steps);
+
+  // Optional - a malformed value (wrong length, non-finite) falls back to the
+  // pipeline's own default rather than rendering garbage or throwing.
+  const backface = Array.isArray(config.back_face_color) && config.back_face_color.length === 3 && config.back_face_color.every(Number.isFinite)
+    ? config.back_face_color
+    : DEFAULT_BACKFACE_COLOR;
+  gl.uniform3f(uniform('u_backface_color'), backface[0], backface[1], backface[2]);
 
   const buffers = [];
   const vao = gl.createVertexArray();

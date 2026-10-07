@@ -90,7 +90,8 @@ pipeline's export stage wrote in formats a browser already reads:
 ```
 my_run.snap3d/
   config.json   up_vector, sh{degree, coefficients, storage[, offset, scale]},
-                texture_resolution, height{range, num_steps}, initial_camera
+                texture_resolution, height{range, num_steps}, initial_camera,
+                [back_face_color]
   mesh.glb      POSITION (V,3) f32, TEXCOORD_0 (V,2) f32, indices (F,3) u32
   sh.ktx2       array, one layer per SH coefficient; a is padding. RGBA8 UNORM when
                 sh.storage is "unorm8" (coefficient = sh.offset[k][c] +
@@ -116,6 +117,11 @@ added `sh.storage`: the pipeline now writes `"unorm8"` by default - each (coeffi
 channel) quantized to 8 bits over its own min..max, with the offset and scale in
 `config.json` - and `"float16"` remains available. `/2` bundles have no `storage` key and
 are float16; this viewer loads both.
+
+`back_face_color` is optional - `[r, g, b]`, 0-1, the flat colour a fragment shows when
+the view direction is on the far side of the surface's local frame (a backface, or
+through a hole into the mesh interior - see `src/shaders.js`'s `eval_sh`). Unset, it's
+the pipeline's own `(0.35, 0.33, 0.30)`.
 
 ## Building and publishing
 

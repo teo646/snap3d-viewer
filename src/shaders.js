@@ -5,7 +5,11 @@
 // the uv a renderer resolves cannot drift apart. A browser cannot import it, so this
 // file is the one place the shared source is retyped - and everything below is a
 // character-for-character copy of the Python strings except for the three changes
-// GLSL ES 3.00 forces, each marked `// PORT:`.
+// GLSL ES 3.00 forces, each marked `// PORT:`, plus one deliberate viewer-only
+// addition: the backface colour in EVAL_SH_GLSL is a uniform here instead of the
+// Python source's hardcoded literal, so a bundle can override it (see renderer.js);
+// the uniform's default is that same literal, so an unmarked bundle renders
+// identically to the pipeline source either way.
 //
 // `PIPELINE_GLSL_SHA256` is sha256(VERTEX_SHADER + RESOLVE_GLSL + EVAL_SH_GLSL) of the
 // Python module this was ported from. renderer.js compares it against a `glsl_sha256`
@@ -110,6 +114,7 @@ vec2 resolve_parallax_uv(vec2 uv0, vec3 flat_pos0, vec3 n0, vec3 t_raw, vec3 b_r
 
 const EVAL_SH_GLSL = `
 uniform sampler2DArray u_coeffs;
+uniform vec3 u_backface_color; // see the file header - defaults to the Python literal
 #ifdef SH_UNORM8
 // Bundle sh_storage "unorm8": the array holds RGBA8 UNORM samples, and each coefficient
 // is offset + scale * sample. Affine, so applying it after the GPU's bilinear filter is
@@ -125,7 +130,7 @@ vec3 eval_sh(vec2 uv, vec3 view_local){
 
     // flat: backface (or through a hole into the mesh interior)
     if(v.z <= 0.0){  // PORT: was \`<= 0\`; ES 3.00 has no implicit int->float compare
-        return vec3(0.35, 0.33, 0.30);
+        return u_backface_color;
     }
     float hz = clamp(v.z, 0.0, 1.0);
     vec3 d = vec3(2.0 * v.x * hz, 2.0 * v.y * hz, 2.0 * hz * hz - 1.0);
