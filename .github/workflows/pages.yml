@@ -43,6 +43,10 @@ jobs:
           # Old page paths that now live at their own URL - a static meta-refresh
           # rather than a server redirect, since Pages serves plain files.
           cp -r redirects/* _site/
+          # editor/index.html loads ../dist/viewer_editor.js, same as it does served
+          # from the repo root locally - so it only needs to land at the same
+          # relative position, not any rewriting.
+          cp -r editor _site/editor
           ls -lh _site/dist
 
       - uses: actions/upload-pages-artifact@v3

@@ -168,7 +168,7 @@ export class Snap3dViewer {
    * and the camera re-derived from the new bundle - a different `up_vector` and a
    * different opening pose are exactly what a second bundle brings.
    *
-   * @param {object} [options]  
+   * @param {string} url  the new bundle's `config.json`, or the `.snap3d` folder holding it
    * @returns {Promise<Snap3dViewer>} the same promise shape as `ready`
    */
   load(url) {
@@ -260,7 +260,6 @@ export class Snap3dViewer {
     this.stop();
     this.controls?.dispose();
     this._resizeObserver?.disconnect();
-    this._posterEl?.remove();
     this._loadingEl?.remove();
     for (const off of this._unbind ?? []) off();
     this._unbind = [];
@@ -382,9 +381,8 @@ export class Snap3dViewer {
   }
 
 
-  /** Show the built-in loading bar, creating it the first time it's needed - the
-   *  `loadingIndicator` counterpart to `_showPoster()`, same overlay host, same
-   *  "stays up until the first real frame draws" handling in `_draw()`. */
+  /** Show the built-in loading bar, creating it the first time it's needed - stays up
+   *  until the first real frame draws, via `_draw()`'s `_loadingPendingHide` check. */
   _showLoadingIndicator() {
     const opt = this.options.loadingIndicator;
     const color = (opt && typeof opt === 'object' && opt.color) || '#3b82f6';
